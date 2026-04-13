@@ -1,0 +1,434 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+//////////////////////////////////////////////////////////
+// ENUMS
+//////////////////////////////////////////////////////////
+
+enum CompanyStatus {
+  PENDING
+  APPROVED
+  BLOCKED
+}
+
+enum Role {
+  BUYER
+  SELLER
+  ADMIN
+}
+
+enum RFQStatus {
+  OPEN
+  CLOSED
+}
+
+enum QuoteStatus {
+  SENT
+  ACCEPTED
+  REJECTED
+}
+
+enum OrderStatus {
+  PENDING_PAYMENT
+  PAID
+  PREPARING
+  SHIPPED
+  COMPLETED
+  CANCELLED
+}
+
+enum PayoutStatus {
+  PENDING
+  PAID
+}
+
+enum DisputeStatus {
+  OPEN
+  SELLER_RESPONDED
+  RESOLVED_BUYER
+  RESOLVED_SELLER
+  REJECTED
+}
+
+enum DisputeResolution {
+  RELEASE_TO_SELLER
+  REFUND_TO_BUYER
+  PARTIAL_REFUND
+}
+
+enum LedgerType {
+  ESCROW_DEPOSIT
+  ESCROW_RELEASE_SELLER
+  ESCROW_REFUND_BUYER
+  COMMISSION
+  PAYOUT_REQUEST
+  PAYOUT_APPROVE
+  PAYOUT_REJECT
+  ADJUSTMENT
+}
+
+enum EscrowEventType {
+  RELEASE_TO_SELLER
+  REFUND_TO_BUYER
+  PARTIAL_REFUND
+}
+
+enum PaymentProvider {
+  IYZICO
+  PAYPAL
+}
+
+enum PaymentStatus {
+  INITIATED
+  CALLBACK_RECEIVED
+  SUCCESS
+  FAILED
+}
+
+//////////////////////////////////////////////////////////
+// MODELS
+//////////////////////////////////////////////////////////
+
+model Company {
+  id                   String        @id @default(cuid())
+  name                 String
+  taxNumber            String?
+  verified             Boolean      @default(false)
+  taxOffice            String?
+  email                String?
+  phone                String?
+  address              Json?
+  status               CompanyStatus @default(PENDING)
+  role                 Role
+  iyzicoSubMerchantKey String?
+  createdAt            DateTime      @default(now())
+
+  users      User[]
+  products   Product[]
+  rfqs       RFQ[]
+  quotes     Quote[]
+  ordersBuy  Order[]   @relation("BuyerOrders")
+  ordersSell Order[]   @relation("SellerOrders")
+  payouts    Payout[]
+
+  disputesBuyer  Dispute[] @relation("BuyerDisputes")
+  disputesSeller Dispute[] @relation("SellerDisputes")
+
+  ledgerFrom LedgerEntry[] @relation("LedgerFrom")
+  ledgerTo   LedgerEntry[] @relation("LedgerTo")
+
+  wallet              CompanyWallet?
+  paymentTransactions PaymentTransaction[]
+}
+
+model CompanyWallet {
+  id        String   @id @default(cuid())
+  companyId String   @unique
+  available Decimal  @default(0)
+  locked    Decimal  @default(0)
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  role      Role     @default(BUYER)
+  companyId String
+  createdAt DateTime @default(now())
+
+  company   Company  @relation(fields: [companyId], references: [id])
+}
+
+model Category {
+  id        String     @id @default(cuid())
+  name      String
+  parentId  String?
+  parent    Category?  @relation("CategoryTree", fields: [parentId], references: [id])
+  children  Category[] @relation("CategoryTree")
+  createdAt DateTime   @default(now())
+
+  products Product[]
+
+  @@index([parentId])
+}
+
+model Product {
+  id           String   @id @default(cuid())
+  sellerId     String
+  categoryId   String?
+
+  title        String
+  description  String?
+
+  imageUrl     String?
+
+  unitType     String
+  moq          Int
+  basePrice    Decimal
+
+  leadTimeDays Int?
+  stockType    String?
+  vatRate      Int?
+
+  rfqEnabled   Boolean  @default(true)
+
+  isActive     Boolean  @default(true)
+  isApproved   Boolean  @default(false)
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  seller       Company   @relation(fields: [sellerId], references: [id])
+  category     Category? @relation(fields: [categoryId], references: [id])
+
+  images       ProductImage[]
+  rfqs         RFQ[]
+
+  @@index([sellerId])
+  @@index([categoryId])
+  @@index([isActive, isApproved])
+}
+
+model ProductImage {
+  id        String   @id @default(cuid())
+  productId String
+  url       String
+  sortOrder Int      @default(0)
+  isCover   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id])
+
+  @@index([productId])
+}
+model RFQ {
+  id        String    @id @default(cuid())
+  productId String
+  buyerId   String
+  quantity  Int
+  note      String?
+  status    RFQStatus @default(OPEN)
+  createdAt DateTime  @default(now())
+
+  product Product @relation(fields: [productId], references: [id])
+  buyer   Company @relation(fields: [buyerId], references: [id])
+
+  quotes Quote[]
+  order  Order?
+
+  @@index([productId])
+  @@index([buyerId])
+  @@index([status])
+}
+
+model Quote {
+  id           String      @id @default(cuid())
+  rfqId        String
+  sellerId     String
+  unitPrice    Decimal
+  deliveryDays Int
+  sellerNote   String?
+  status       QuoteStatus @default(SENT)
+  createdAt    DateTime    @default(now())
+
+  rfq    RFQ     @relation(fields: [rfqId], references: [id])
+  seller Company @relation(fields: [sellerId], references: [id])
+
+  order Order?
+
+  @@index([rfqId])
+  @@index([sellerId])
+  @@index([status])
+}
+
+model Order {
+  id               String  @id @default(cuid())
+  rfqId            String  @unique
+  quoteId          String  @unique
+  buyerId          String
+  sellerId         String
+  totalAmount      Decimal
+  commissionAmount Decimal
+
+  escrowAmount   Decimal   @default(0)
+  escrowReleased Boolean   @default(false)
+  releasedAt     DateTime?
+
+  payoutAmount Decimal     @default(0)
+  status       OrderStatus @default(PENDING_PAYMENT)
+  createdAt    DateTime    @default(now())
+
+  iyzicoConversationId String?
+  iyzicoCheckoutToken  String?
+  iyzicoPaymentId      String?
+  iyzicoPaidAt         DateTime?
+  iyzicoRawResult      Json?
+
+  paymentAttempts PaymentAttempt[] @relation("OrderPaymentAttempts")
+
+  rfq    RFQ     @relation(fields: [rfqId], references: [id])
+  quote  Quote   @relation(fields: [quoteId], references: [id])
+  buyer  Company @relation("BuyerOrders", fields: [buyerId], references: [id])
+  seller Company @relation("SellerOrders", fields: [sellerId], references: [id])
+
+  payout              Payout?              @relation("OrderPayout")
+  disputes            Dispute[]
+  escrowEvent         EscrowEvent[]
+  ledger              LedgerEntry[]
+  paymentTransactions PaymentTransaction[]
+
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([status])
+}
+
+model PaymentAttempt {
+  id       String          @id @default(cuid())
+  orderId  String
+  provider PaymentProvider
+  status   PaymentStatus   @default(INITIATED)
+
+  conversationId  String?
+  checkoutToken   String?
+  iyzicoPaymentId String?
+
+  rawRequest  Json?
+  rawResponse Json?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order Order @relation("OrderPaymentAttempts", fields: [orderId], references: [id])
+
+  @@index([orderId])
+  @@index([conversationId])
+  @@index([checkoutToken])
+}
+
+model Payout {
+  id          String       @id @default(cuid())
+  orderId     String       @unique
+  sellerId    String
+  amount      Decimal
+  status      PayoutStatus @default(PENDING)
+  createdAt   DateTime     @default(now())
+  processedAt DateTime?
+  note        String?
+
+  order  Order   @relation("OrderPayout", fields: [orderId], references: [id])
+  seller Company @relation(fields: [sellerId], references: [id])
+
+  @@index([sellerId])
+  @@index([status])
+}
+
+model Dispute {
+  id          String             @id @default(cuid())
+  orderId     String
+  buyerId     String
+  sellerId    String
+  reason      String
+  description String?
+  status      DisputeStatus      @default(OPEN)
+  resolution  DisputeResolution?
+  adminNote   String?
+  createdAt   DateTime           @default(now())
+  resolvedAt  DateTime?
+
+  order  Order   @relation(fields: [orderId], references: [id])
+  buyer  Company @relation("BuyerDisputes", fields: [buyerId], references: [id])
+  seller Company @relation("SellerDisputes", fields: [sellerId], references: [id])
+
+  escrowEvent   EscrowEvent?
+  ledgerEntries LedgerEntry[]
+
+  @@index([orderId])
+  @@index([status])
+}
+
+model EscrowEvent {
+  id        String          @id @default(cuid())
+  orderId   String
+  disputeId String          @unique
+  type      EscrowEventType
+  amount    Decimal
+  note      String?
+  createdAt DateTime        @default(now())
+
+  dispute Dispute @relation(fields: [disputeId], references: [id])
+  order   Order   @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+}
+
+model LedgerEntry {
+  id            String     @id @default(cuid())
+  type          LedgerType
+  orderId       String?
+  disputeId     String?
+  fromCompanyId String?
+  toCompanyId   String?
+  amount        Decimal
+  currency      String     @default("TRY")
+  note          String?
+  meta          Json?
+  createdAt     DateTime   @default(now())
+
+  order   Order?   @relation(fields: [orderId], references: [id])
+  dispute Dispute? @relation(fields: [disputeId], references: [id])
+
+  fromCompany Company? @relation("LedgerFrom", fields: [fromCompanyId], references: [id])
+  toCompany   Company? @relation("LedgerTo", fields: [toCompanyId], references: [id])
+
+  @@index([type])
+  @@index([orderId])
+  @@index([disputeId])
+}
+
+model AuditLog {
+  id             String   @id @default(cuid())
+  requestId      String?
+  actorId        String?
+  actorRole      String?
+  actorCompanyId String?
+  action         String
+  entity         String
+  entityId       String?
+  success        Boolean  @default(true)
+  errorMessage   String?
+  ip             String?
+  userAgent      String?
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorCompanyId])
+  @@index([entity])
+}
+
+model PaymentTransaction {
+  id                   String   @id @default(cuid())
+  orderId              String
+  sellerId             String
+  paymentTransactionId String   @unique
+  amount               Decimal
+  status               String
+  createdAt            DateTime @default(now())
+
+  order  Order   @relation(fields: [orderId], references: [id])
+  seller Company @relation(fields: [sellerId], references: [id])
+
+  @@index([orderId])
+  @@index([sellerId])
+}

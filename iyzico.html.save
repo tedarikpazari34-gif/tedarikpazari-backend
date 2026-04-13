@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>IyziCo Checkout</title>
+  </head>
+  <body>
+    <h3>IyziCo Sandbox Checkout</h3>
+    <div id="iyzipay-checkout-form" class="responsive"></div>
+
+    <!-- BURAYA checkoutFormContent'i yapıştır -->
+<script type="text/javascript">
+if (typeof iyziInit == 'undefined') {
+var iyziInit = {
+currency:"TRY",
+token:"4f00bc2c-cc05-4d43-85ab-1aea58dbcd42",
+price:4750.00,
+locale:"tr",
+baseUrl:"https://sandbox-api.iyzipay.com",
+isSandbox:true,
+createTag:function(){
+var iyziJSTag=document.createElement('script');
+iyziJSTag.setAttribute('src','https://sandbox-static.iyzipay.com/checkoutform/v2/bundle.js');
+document.head.appendChild(iyziJSTag);
+}
+};
+iyziInit.createTag();
+}
+</script>  
+</body>
+</html>

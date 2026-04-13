@@ -1,0 +1,309 @@
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import {
+  LedgerType,
+  OrderStatus,
+  Prisma,
+  Role,
+  PayoutStatus,
+  DisputeStatus,
+} from '@prisma/client';
+
+@Injectable()
+export class OrderService {
+  constructor(private prisma: PrismaService) {}
+
+  // Wallet yoksa oluştur
+  private async ensureWallet(tx: Prisma.TransactionClient, companyId: string) {
+    return tx.companyWallet.upsert({
+      where: { companyId },
+      create: {
+        companyId,
+        available: new Prisma.Decimal(0),
+        locked: new Prisma.Decimal(0),
+      },
+      update: {},
+    });
+  }
+
+  // ORDER LIST
+  async list(user: any) {
+    const includeRelations = {
+      rfq: true,
+      quote: true,
+      buyer: true,
+      seller: true,
+    };
+
+    if (user.role === Role.ADMIN) {
+      return this.prisma.order.findMany({
+        orderBy: { createdAt: 'desc' },
+        include: includeRelations,
+      });
+    }
+
+    if (user.role === Role.BUYER) {
+      return this.prisma.order.findMany({
+        where: {
+          buyerId: user.companyId,
+        },
+        orderBy: { createdAt: 'desc' },
+        include: includeRelations,
+      });
+    }
+
+    if (user.role === Role.SELLER) {
+      return this.prisma.order.findMany({
+        where: {
+          sellerId: user.companyId,
+        },
+        orderBy: { createdAt: 'desc' },
+        include: includeRelations,
+      });
+    }
+
+    throw new ForbiddenException('Yetkisiz');
+  }
+
+  // ORDER DETAIL
+  async getOne(user: any, orderId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: {
+        rfq: true,
+        quote: true,
+        buyer: true,
+        seller: true,
+        disputes: true,
+      },
+    });
+
+    if (!order) throw new NotFoundException('Order not found');
+
+    const isAdmin = user.role === Role.ADMIN;
+
+    const isOwner =
+      order.buyerId === user.companyId ||
+      order.sellerId === user.companyId;
+
+    if (!isAdmin && !isOwner) {
+      throw new ForbiddenException('Bu order size ait değil');
+    }
+
+    return order;
+  }
+
+  // BUYER ödeme
+  async pay(user: any, orderId: string) {
+    if (user.role !== Role.BUYER) {
+      throw new ForbiddenException('Sadece BUYER ödeme yapabilir');
+    }
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+    });
+
+    if (!order) throw new NotFoundException('Order not found');
+
+    if (order.buyerId !== user.companyId) {
+      throw new ForbiddenException('Bu order size ait değil');
+    }
+
+    if (order.status !== OrderStatus.PENDING_PAYMENT) {
+      throw new BadRequestException('Order ödeme beklemiyor');
+    }
+
+    const escrowAmount = new Prisma.Decimal(order.escrowAmount);
+
+    if (escrowAmount.lte(0)) {
+      throw new BadRequestException('Escrow amount 0 olamaz');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      await this.ensureWallet(tx, order.buyerId);
+      await this.ensureWallet(tx, order.sellerId);
+
+      const buyerWallet = await tx.companyWallet.findUnique({
+        where: { companyId: order.buyerId },
+      });
+
+      if (!buyerWallet) {
+        throw new NotFoundException('Buyer wallet not found');
+      }
+
+      const buyerAvailable = new Prisma.Decimal(buyerWallet.available);
+
+      if (buyerAvailable.lt(escrowAmount)) {
+        throw new BadRequestException('Yetersiz bakiye');
+      }
+
+      await tx.companyWallet.update({
+        where: { companyId: order.buyerId },
+        data: {
+          available: { decrement: escrowAmount },
+          locked: { increment: escrowAmount },
+        },
+      });
+
+      const updatedOrder = await tx.order.update({
+        where: { id: order.id },
+        data: { status: OrderStatus.PAID },
+      });
+
+      await tx.ledgerEntry.create({
+        data: {
+          orderId: order.id,
+          type: LedgerType.ESCROW_DEPOSIT,
+          amount: escrowAmount,
+          currency: 'TRY',
+          note: 'Buyer payment deposited into escrow',
+        },
+      });
+
+      await tx.ledgerEntry.create({
+        data: {
+          orderId: order.id,
+          type: LedgerType.COMMISSION,
+          amount: order.commissionAmount,
+          currency: 'TRY',
+          note: 'Platform commission reserved',
+        },
+      });
+
+      return {
+        message: 'Payment successful',
+        order: updatedOrder,
+      };
+    });
+  }
+
+  // SELLER hazırlık
+  async prepare(user: any, orderId: string) {
+    if (user.role !== Role.SELLER) {
+      throw new ForbiddenException('Sadece SELLER hazırlayabilir');
+    }
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+    });
+
+    if (!order) throw new NotFoundException('Order not found');
+
+    if (order.sellerId !== user.companyId) {
+      throw new ForbiddenException('Bu order size ait değil');
+    }
+
+    if (order.status !== OrderStatus.PAID) {
+      throw new BadRequestException('Order PAID değil');
+    }
+
+    const updated = await this.prisma.order.update({
+      where: { id: order.id },
+      data: { status: OrderStatus.PREPARING },
+    });
+
+    return {
+      message: 'Order marked as PREPARING',
+      order: updated,
+    };
+  }
+
+  // SELLER kargoya verir
+  async ship(user: any, orderId: string) {
+    if (user.role !== Role.SELLER) {
+      throw new ForbiddenException('Sadece SELLER kargoya verebilir');
+    }
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+    });
+
+    if (!order) throw new NotFoundException('Order not found');
+
+    if (order.sellerId !== user.companyId) {
+      throw new ForbiddenException('Bu order size ait değil');
+    }
+
+    if (order.status !== OrderStatus.PREPARING) {
+      throw new BadRequestException('Order PREPARING değil');
+    }
+
+    const updated = await this.prisma.order.update({
+      where: { id: order.id },
+      data: { status: OrderStatus.SHIPPED },
+    });
+
+    return {
+      message: 'Order marked as SHIPPED',
+      order: updated,
+    };
+  }
+
+  // BUYER teslim aldı
+  async complete(user: any, orderId: string) {
+    if (user.role !== Role.BUYER) {
+      throw new ForbiddenException('Sadece BUYER tamamlayabilir');
+    }
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+    });
+
+    if (!order) throw new NotFoundException('Order not found');
+
+    if (order.buyerId !== user.companyId) {
+      throw new ForbiddenException('Bu order size ait değil');
+    }
+
+    if (order.status !== OrderStatus.SHIPPED) {
+      throw new BadRequestException('Order SHIPPED değil');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      await this.ensureWallet(tx, order.buyerId);
+      await this.ensureWallet(tx, order.sellerId);
+
+      const updated = await tx.order.update({
+        where: { id: order.id },
+        data: { status: OrderStatus.COMPLETED },
+      });
+
+      const releaseAmount = new Prisma.Decimal(order.escrowAmount);
+
+      await tx.companyWallet.update({
+        where: { companyId: order.buyerId },
+        data: {
+          locked: { decrement: releaseAmount },
+        },
+      });
+
+      await tx.companyWallet.update({
+        where: { companyId: order.sellerId },
+        data: {
+          available: { increment: releaseAmount },
+        },
+      });
+
+      await tx.ledgerEntry.create({
+        data: {
+          orderId: order.id,
+          type: LedgerType.ESCROW_RELEASE_SELLER,
+          amount: releaseAmount,
+          currency: 'TRY',
+          note: 'Escrow released to seller',
+        },
+      });
+
+      return {
+        message: 'Order completed and escrow released',
+        order: updated,
+      };
+    });
+  }
+}
+
