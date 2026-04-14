@@ -8,13 +8,23 @@ import {
   Query,
   Req,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
+  BadRequestException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+
 import { ProductService } from './product.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { UseInterceptors, UploadedFile } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+
+interface UploadedImageFile {
+  filename: string;
+  originalname?: string;
+  mimetype?: string;
+  size?: number;
+}
 
 @Controller('products')
 export class ProductController {
@@ -33,18 +43,25 @@ export class ProductController {
   listByCategory(@Param('categoryId') categoryId: string) {
     return this.productService.listByCategory(categoryId);
   }
+
   @UseGuards(JwtAuthGuard)
-@Post(':id/upload')
-@UseInterceptors(FileInterceptor('file'))
-uploadImage(
-  @Param('id') id: string,
-  @UploadedFile() file: Express.Multer.File,
-) {
-  return {
-    message: 'upload başarılı',
-    filename: file.filename,
-  };
-}
+  @Post(':id/upload')
+  @UseInterceptors(FileInterceptor('file'))
+  uploadImage(
+    @Param('id') id: string,
+    @UploadedFile() file: UploadedImageFile,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Dosya yüklenemedi');
+    }
+
+    return {
+      message: 'upload başarılı',
+      productId: id,
+      filename: file.filename,
+    };
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get('mine')
   listMine(@Req() req: any) {
