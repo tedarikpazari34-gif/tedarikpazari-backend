@@ -13,6 +13,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiBearerAuth, ApiConsumes, ApiBody, ApiQuery, ApiTags } from '@nestjs/swagger';
 
 import { ProductService } from './product.service';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -26,10 +27,14 @@ interface UploadedImageFile {
   size?: number;
 }
 
+@ApiTags('Product')
 @Controller('products')
 export class ProductController {
   constructor(private readonly productService: ProductService) {}
 
+  @ApiQuery({ name: 'categoryId', required: false })
+  @ApiQuery({ name: 'sellerId', required: false })
+  @ApiQuery({ name: 'q', required: false })
   @Get()
   list(
     @Query('categoryId') categoryId?: string,
@@ -44,8 +49,22 @@ export class ProductController {
     return this.productService.listByCategory(categoryId);
   }
 
+  @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Post(':id/upload')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+      required: ['file'],
+    },
+  })
   @UseInterceptors(FileInterceptor('file'))
   uploadImage(
     @Param('id') id: string,
@@ -62,12 +81,14 @@ export class ProductController {
     };
   }
 
+  @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Get('mine')
   listMine(@Req() req: any) {
     return this.productService.listMine(req.user);
   }
 
+  @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Get('admin/pending')
   listPending(@Req() req: any) {
@@ -79,18 +100,21 @@ export class ProductController {
     return this.productService.getOne(id);
   }
 
+  @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Post()
   create(@Req() req: any, @Body() body: CreateProductDto) {
     return this.productService.create(req.user, body);
   }
 
+  @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Post(':id/images')
   addImages(@Req() req: any, @Param('id') id: string, @Body() body: any) {
     return this.productService.addImages(req.user, id, body);
   }
 
+  @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Patch(':id')
   update(
@@ -101,6 +125,7 @@ export class ProductController {
     return this.productService.update(req.user, id, body);
   }
 
+  @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @Patch(':id/approve')
   approve(@Req() req: any, @Param('id') id: string) {
