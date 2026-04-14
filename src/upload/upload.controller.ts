@@ -14,12 +14,6 @@ import { ApiBody, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
 
-interface UploadedImageFile {
-  originalname: string;
-  mimetype: string;
-  filename: string;
-}
-
 const storage = diskStorage({
   destination: './uploads',
   filename: (_req, file, cb) => {
@@ -29,11 +23,7 @@ const storage = diskStorage({
   },
 });
 
-const imageFileFilter = (
-  _req: unknown,
-  file: UploadedImageFile,
-  cb: (error: Error | null, acceptFile: boolean) => void,
-) => {
+const imageFileFilter = (_req: any, file: any, cb: any) => {
   const allowedExt = /jpg|jpeg|png|webp/;
   const ext = extname(file.originalname).toLowerCase();
 
@@ -79,7 +69,7 @@ export class UploadController {
       },
     }),
   )
-  uploadFile(@UploadedFile() file: UploadedImageFile) {
+  uploadFile(@UploadedFile() file: any) {
     if (!file) {
       throw new BadRequestException('Dosya yüklenemedi');
     }
@@ -116,7 +106,7 @@ export class UploadController {
       },
     }),
   )
-  uploadMultiple(@UploadedFiles() files: UploadedImageFile[]) {
+  uploadMultiple(@UploadedFiles() files: any[]) {
     if (!files || files.length === 0) {
       throw new BadRequestException('Dosyalar yüklenemedi');
     }
