@@ -167,11 +167,6 @@ async function ensureAdmin() {
 }
 
 async function ensureDevUsers() {
-  if (process.env.NODE_ENV === "production") {
-    console.log("ℹ️ Production mode: test users skipped");
-    return;
-  }
-
   const hashedPassword = await bcrypt.hash("123456", 10);
 
   const sellerCompany = await prisma.company.upsert({
@@ -190,7 +185,9 @@ async function ensureDevUsers() {
       role: Role.SELLER,
     },
   });
+
   await ensureCompanyWallet(sellerCompany.id);
+
   const buyerCompany = await prisma.company.upsert({
     where: { id: "seed-buyer-company" },
     update: {
@@ -207,17 +204,21 @@ async function ensureDevUsers() {
       role: Role.BUYER,
     },
   });
+
   await ensureCompanyWallet(buyerCompany.id);
+
   await prisma.user.upsert({
     where: { email: "seller@test.com" },
     update: {
       password: hashedPassword,
       companyId: sellerCompany.id,
+      role: Role.SELLER,
     },
     create: {
       email: "seller@test.com",
       password: hashedPassword,
       companyId: sellerCompany.id,
+      role: Role.SELLER,
     },
   });
 
@@ -226,16 +227,15 @@ async function ensureDevUsers() {
     update: {
       password: hashedPassword,
       companyId: buyerCompany.id,
+      role: Role.BUYER,
     },
     create: {
       email: "buyer@test.com",
       password: hashedPassword,
       companyId: buyerCompany.id,
+      role: Role.BUYER,
     },
   });
-
-  await ensureCompanyWallet(sellerCompany.id);
-  await ensureCompanyWallet(buyerCompany.id);
 
   console.log("✅ Dev test users ready");
 }
