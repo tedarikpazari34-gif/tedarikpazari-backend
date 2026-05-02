@@ -5,12 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import {
-  LedgerType,
-  OrderStatus,
-  Prisma,
-  Role,
-} from '@prisma/client';
+import { LedgerType, OrderStatus, Prisma, Role } from '@prisma/client';
 
 @Injectable()
 export class OrderService {
@@ -73,14 +68,15 @@ export class OrderService {
     });
 
     if (existingOrder) {
-      throw new BadRequestException('Bu teklif için zaten sipariş oluşturulmuş');
+      throw new BadRequestException(
+        'Bu teklif için zaten sipariş oluşturulmuş',
+      );
     }
 
     const totalAmount = new Prisma.Decimal(quote.unitPrice).mul(
       new Prisma.Decimal(quote.rfq.quantity),
     );
 
-    // Şimdilik örnek komisyon: %5
     const commissionAmount = totalAmount.mul(new Prisma.Decimal(0.05));
     const escrowAmount = totalAmount;
     const payoutAmount = totalAmount.minus(commissionAmount);
@@ -100,6 +96,7 @@ export class OrderService {
         },
       });
 
+      // Seçilen teklifi ACCEPTED yap
       await tx.quote.update({
         where: { id: quote.id },
         data: {
@@ -107,6 +104,18 @@ export class OrderService {
         },
       });
 
+      // Aynı RFQ üzerindeki diğer teklifleri REJECTED yap
+      await tx.quote.updateMany({
+        where: {
+          rfqId: quote.rfqId,
+          id: { not: quote.id },
+        },
+        data: {
+          status: 'REJECTED',
+        },
+      });
+
+      // RFQ'yu kapat
       await tx.rFQ.update({
         where: { id: quote.rfqId },
         data: {
@@ -124,7 +133,11 @@ export class OrderService {
   // ORDER LIST
   async list(user: any) {
     const includeRelations = {
-      rfq: true,
+      rfq: {
+        include: {
+          product: true,
+        },
+      },
       quote: true,
       buyer: true,
       seller: true,
@@ -165,7 +178,11 @@ export class OrderService {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
       include: {
-        rfq: true,
+        rfq: {
+          include: {
+            product: true,
+          },
+        },
         quote: true,
         buyer: true,
         seller: true,
@@ -173,13 +190,14 @@ export class OrderService {
       },
     });
 
-    if (!order) throw new NotFoundException('Order not found');
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
 
     const isAdmin = user.role === Role.ADMIN;
 
     const isOwner =
-      order.buyerId === user.companyId ||
-      order.sellerId === user.companyId;
+      order.buyerId === user.companyId || order.sellerId === user.companyId;
 
     if (!isAdmin && !isOwner) {
       throw new ForbiddenException('Bu order size ait değil');
@@ -198,7 +216,9 @@ export class OrderService {
       where: { id: orderId },
     });
 
-    if (!order) throw new NotFoundException('Order not found');
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
 
     if (order.buyerId !== user.companyId) {
       throw new ForbiddenException('Bu order size ait değil');
@@ -282,7 +302,9 @@ export class OrderService {
       where: { id: orderId },
     });
 
-    if (!order) throw new NotFoundException('Order not found');
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
 
     if (order.sellerId !== user.companyId) {
       throw new ForbiddenException('Bu order size ait değil');
@@ -313,7 +335,9 @@ export class OrderService {
       where: { id: orderId },
     });
 
-    if (!order) throw new NotFoundException('Order not found');
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
 
     if (order.sellerId !== user.companyId) {
       throw new ForbiddenException('Bu order size ait değil');
@@ -344,7 +368,9 @@ export class OrderService {
       where: { id: orderId },
     });
 
-    if (!order) throw new NotFoundException('Order not found');
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
 
     if (order.buyerId !== user.companyId) {
       throw new ForbiddenException('Bu order size ait değil');

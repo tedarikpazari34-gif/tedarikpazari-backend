@@ -21,7 +21,7 @@ import { CategoryModule } from './category/category.module';
 import { SellerModule } from './seller/seller.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { CompanyModule } from './company/company.module';
-
+import { ShippingModule } from './shipping/shipping.module';
 @Module({
   imports: [
     PrismaModule,
@@ -45,6 +45,7 @@ import { CompanyModule } from './company/company.module';
     DisputeModule,
     DashboardModule,
     CompanyModule,
+    ShippingModule,
   ],
   controllers: [AppController],
   providers: [],
