@@ -1,10 +1,24 @@
-import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+
 import { WalletService } from './wallet.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('wallet')
 export class WalletController {
   constructor(private readonly walletService: WalletService) {}
+
+  @UseGuards(JwtAuthGuard)
+  @Get('me')
+  getMine(@Req() req: any) {
+    return this.walletService.getMine(req.user);
+  }
 
   @UseGuards(JwtAuthGuard)
   @Post('admin-adjust')

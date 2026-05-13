@@ -327,36 +327,41 @@ export class OrderService {
 
   // SELLER kargoya verir
   async ship(user: any, orderId: string) {
-    if (user.role !== Role.SELLER) {
-      throw new ForbiddenException('Sadece SELLER kargoya verebilir');
-    }
-
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-    });
-
-    if (!order) {
-      throw new NotFoundException('Order not found');
-    }
-
-    if (order.sellerId !== user.companyId) {
-      throw new ForbiddenException('Bu order size ait değil');
-    }
-
-    if (order.status !== OrderStatus.PREPARING) {
-      throw new BadRequestException('Order PREPARING değil');
-    }
-
-    const updated = await this.prisma.order.update({
-      where: { id: order.id },
-      data: { status: OrderStatus.SHIPPED },
-    });
-
-    return {
-      message: 'Order marked as SHIPPED',
-      order: updated,
-    };
+  if (user.role !== Role.SELLER) {
+    throw new ForbiddenException('Sadece SELLER kargoya verebilir');
   }
+
+  const order = await this.prisma.order.findUnique({
+    where: { id: orderId },
+  });
+
+  if (!order) {
+    throw new NotFoundException('Order not found');
+  }
+
+  if (order.sellerId !== user.companyId) {
+    throw new ForbiddenException('Bu order size ait değil');
+  }
+
+  if (order.status !== OrderStatus.PREPARING) {
+    throw new BadRequestException('Order PREPARING değil');
+  }
+
+  const updated = await this.prisma.order.update({
+    where: { id: order.id },
+    data: {
+      status: OrderStatus.SHIPPED,
+      shippedAt: new Date(),
+      shippingTrackingNo: `TRK-${Date.now()}`,
+      shippingCompany: 'Yurtiçi Kargo',
+    },
+  });
+
+  return {
+    message: 'Order marked as SHIPPED',
+    order: updated,
+  };
+}
 
   // BUYER teslim aldı
   async complete(user: any, orderId: string) {

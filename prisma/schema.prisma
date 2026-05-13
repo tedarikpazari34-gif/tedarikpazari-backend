@@ -89,7 +89,7 @@ enum Role {
   ADMIN
   BUYER
   SELLER
-  LOGISTICS // 👈 YENİ
+  LOGISTICS
 }
 
 //////////////////////////////////////////////////////////
@@ -106,7 +106,7 @@ model Company {
   phone                String?
   address              Json?
   status               CompanyStatus @default(PENDING)
-  role                 Role
+  role                 Role          @default(BUYER)
   iyzicoSubMerchantKey String?
   createdAt            DateTime      @default(now())
 
@@ -272,6 +272,10 @@ model Order {
   payoutAmount Decimal     @default(0)
   status       OrderStatus @default(PENDING_PAYMENT)
   createdAt    DateTime    @default(now())
+  
+  shippingTrackingNo String?
+  shippingCompany    String?
+  shippedAt          DateTime?
 
   iyzicoConversationId String?
   iyzicoCheckoutToken  String?

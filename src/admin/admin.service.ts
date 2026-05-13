@@ -40,12 +40,20 @@ export class AdminService {
   }
 
   async listCompanies() {
-    return this.prisma.company.findMany({
-      orderBy: {
-        createdAt: 'desc',
+  return this.prisma.company.findMany({
+    include: {
+      users: {
+        where: {
+          role: "ADMIN",
+        },
+        take: 1,
       },
-    });
-  }
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+  });
+}
 
   async listPendingProducts() {
     return this.prisma.product.findMany({
