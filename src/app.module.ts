@@ -22,6 +22,8 @@ import { SellerModule } from './seller/seller.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { CompanyModule } from './company/company.module';
 import { ShippingModule } from './shipping/shipping.module';
+import { NotificationModule } from './notification/notification.module';
+
 @Module({
   imports: [
     PrismaModule,
@@ -46,6 +48,7 @@ import { ShippingModule } from './shipping/shipping.module';
     DashboardModule,
     CompanyModule,
     ShippingModule,
+    NotificationModule,
   ],
   controllers: [AppController],
   providers: [],

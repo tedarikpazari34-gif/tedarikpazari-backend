@@ -4,12 +4,17 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateQuoteDto } from './dto/create-quote.dto';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class QuoteService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
+  ) {}
 
   async create(user: any, body: CreateQuoteDto) {
     if (!user || user.role !== 'SELLER') {
@@ -24,6 +29,11 @@ export class QuoteService {
       where: { id: body.rfqId },
       include: {
         product: true,
+        buyer: {
+          include: {
+            users: true,
+          },
+        },
       },
     });
 
@@ -40,7 +50,9 @@ export class QuoteService {
     }
 
     if (rfq.product.sellerId !== user.companyId) {
-      throw new ForbiddenException('Sadece kendi ürününüze gelen RFQya teklif verebilirsiniz');
+      throw new ForbiddenException(
+        'Sadece kendi ürününüze gelen RFQya teklif verebilirsiniz',
+      );
     }
 
     const existingQuote = await this.prisma.quote.findFirst({
@@ -54,7 +66,7 @@ export class QuoteService {
       throw new BadRequestException('Bu RFQ için zaten teklif verdiniz');
     }
 
-    return this.prisma.quote.create({
+    const quote = await this.prisma.quote.create({
       data: {
         rfqId: body.rfqId,
         sellerId: user.companyId,
@@ -73,6 +85,20 @@ export class QuoteService {
         seller: true,
       },
     });
+
+    const buyerUser = rfq.buyer?.users?.[0];
+
+    if (buyerUser) {
+      await this.notificationService.createNotification({
+        userId: buyerUser.id,
+        type: 'QUOTE',
+        title: 'Yeni Teklif Geldi',
+        message: `${rfq.product.title || 'Ürün'} için yeni teklif aldınız.`,
+        link: `/buyer/rfqs/${rfq.id}`,
+      });
+    }
+
+    return quote;
   }
 
   async listMine(user: any) {
@@ -100,7 +126,9 @@ export class QuoteService {
 
   async listForBuyer(user: any) {
     if (!user || user.role !== 'BUYER') {
-      throw new ForbiddenException('Sadece BUYER kendisine gelen teklifleri görebilir');
+      throw new ForbiddenException(
+        'Sadece BUYER kendisine gelen teklifleri görebilir',
+      );
     }
 
     return this.prisma.quote.findMany({

@@ -91,6 +91,14 @@ enum Role {
   SELLER
   LOGISTICS
 }
+enum NotificationType {
+  RFQ
+  QUOTE
+  ORDER
+  PAYMENT
+  COMPANY
+  SYSTEM
+}
 
 //////////////////////////////////////////////////////////
 // MODELS
@@ -149,9 +157,11 @@ model User {
   role      Role     @default(BUYER)
   companyId String
   createdAt DateTime @default(now())
+  notifications Notification[]
 
   company Company @relation(fields: [companyId], references: [id])
 }
+
 
 model Category {
   id        String     @id @default(cuid())
@@ -471,4 +481,21 @@ model PaymentTransaction {
 
   @@index([orderId])
   @@index([sellerId])
+}
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String
+  link      String?
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([type])
+  @@index([isRead])
+  @@index([createdAt])
 }
