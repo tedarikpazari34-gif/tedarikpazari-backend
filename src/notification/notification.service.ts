@@ -1,4 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -31,12 +36,51 @@ export class NotificationService {
       orderBy: {
         createdAt: 'desc',
       },
+      take: 50,
+    });
+  }
+
+  async getUnreadCount(userId: string) {
+    return this.prisma.notification.count({
+      where: {
+        userId,
+        isRead: false,
+      },
     });
   }
 
   async markAsRead(id: string, userId: string) {
+    const notification =
+      await this.prisma.notification.findUnique({
+        where: { id },
+      });
+
+    if (!notification) {
+      throw new NotFoundException(
+        'Bildirim bulunamadı',
+      );
+    }
+
+    if (notification.userId !== userId) {
+      throw new ForbiddenException(
+        'Bu bildirime erişemezsiniz',
+      );
+    }
+
     return this.prisma.notification.update({
       where: { id },
+      data: {
+        isRead: true,
+      },
+    });
+  }
+
+  async markAllAsRead(userId: string) {
+    return this.prisma.notification.updateMany({
+      where: {
+        userId,
+        isRead: false,
+      },
       data: {
         isRead: true,
       },

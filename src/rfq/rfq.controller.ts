@@ -49,8 +49,7 @@ export class RfqController {
     return this.rfqService.listMine(req.user);
   }
 
-  // GEÇİCİ TEST: CompanyStatusGuard'ı kaldırdım
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, CompanyStatusGuard)
   @Get('open')
   @ApiOperation({ summary: 'List all OPEN RFQs (SELLER)' })
   listOpen(@Req() req: any) {

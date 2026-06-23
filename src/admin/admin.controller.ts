@@ -10,7 +10,7 @@ import {
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-
+import { AdminGuard } from '../common/guards/admin.guard';
 @ApiTags('Admin')
 @ApiBearerAuth()
 @Controller('admin')
@@ -23,7 +23,7 @@ export class AdminController {
     }
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   @Get('companies')
   @ApiOperation({ summary: 'List companies (ADMIN)' })
   listCompanies(@Req() req: any) {
@@ -31,7 +31,7 @@ export class AdminController {
     return this.adminService.listCompanies();
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   @Post('companies/:id/approve')
   @ApiOperation({ summary: 'Approve company (ADMIN)' })
   approveCompany(@Req() req: any, @Param('id') companyId: string) {
@@ -39,7 +39,7 @@ export class AdminController {
     return this.adminService.approveCompany(companyId);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   @Post('companies/:id/block')
   @ApiOperation({ summary: 'Block company (ADMIN)' })
   blockCompany(@Req() req: any, @Param('id') companyId: string) {
@@ -47,7 +47,7 @@ export class AdminController {
     return this.adminService.blockCompany(companyId);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   @Get('products/pending')
   @ApiOperation({ summary: 'List pending products (ADMIN)' })
   listPendingProducts(@Req() req: any) {

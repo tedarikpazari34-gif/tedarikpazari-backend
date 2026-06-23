@@ -1,7 +1,9 @@
 import { Controller, Get, Param, Query, Req, UseGuards } from '@nestjs/common';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { AdminFinanceService } from './admin-finance.service';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AdminGuard } from '../common/guards/admin.guard';
+import { AdminFinanceService } from './admin-finance.service';
 
 @ApiTags('Admin Finance')
 @ApiBearerAuth()
@@ -9,15 +11,19 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 export class AdminFinanceController {
   constructor(private readonly adminFinanceService: AdminFinanceService) {}
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   @Get('ledger')
   @ApiOperation({ summary: 'List ledger entries (ADMIN)' })
   listLedger(@Req() req: any, @Query('take') take?: string) {
     const n = take ? Number(take) : 50;
-    return this.adminFinanceService.listLedger(req.user, Number.isFinite(n) ? n : 50);
+
+    return this.adminFinanceService.listLedger(
+      req.user,
+      Number.isFinite(n) ? n : 50,
+    );
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   @Get('sellers/:sellerId/balance')
   @ApiOperation({ summary: 'Get seller balance snapshot (ADMIN)' })
   getSellerBalance(@Req() req: any, @Param('sellerId') sellerId: string) {

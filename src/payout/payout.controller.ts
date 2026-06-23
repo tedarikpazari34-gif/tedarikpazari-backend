@@ -7,9 +7,11 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { PayoutService } from './payout.service';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AdminGuard } from '../common/guards/admin.guard';
+import { PayoutService } from './payout.service';
 
 @ApiTags('Payouts')
 @ApiBearerAuth()
@@ -17,7 +19,6 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 export class PayoutController {
   constructor(private readonly payoutService: PayoutService) {}
 
-  // ✅ SELLER -> kendi wallet/balance gör
   @UseGuards(JwtAuthGuard)
   @Get('me/balance')
   @ApiOperation({ summary: 'Get my wallet balance (SELLER)' })
@@ -25,34 +26,40 @@ export class PayoutController {
     return this.payoutService.getMyBalance(req.user);
   }
 
-  // SELLER -> payout talep et (release edilmiş order'lar için)
+  @UseGuards(JwtAuthGuard)
+  @Get('me/requests')
+  @ApiOperation({ summary: 'Get my payout requests (SELLER)' })
+  myRequests(@Req() req: any) {
+    return this.payoutService.myRequests(req.user);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Post('request')
   @ApiOperation({ summary: 'Request payout (SELLER)' })
-  request(@Req() req: any) {
-    return this.payoutService.request(req.user);
+  request(
+    @Req() req: any,
+    @Body() body: { amount: number; iban: string },
+  ) {
+    return this.payoutService.request(req.user, body);
   }
 
-  // ADMIN -> payout list
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   @Get()
-  @ApiOperation({ summary: 'List payouts (ADMIN)' })
+  @ApiOperation({ summary: 'List payout requests (ADMIN)' })
   list(@Req() req: any) {
     return this.payoutService.list(req.user);
   }
 
-  // ADMIN -> approve payout
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   @Post(':id/approve')
-  @ApiOperation({ summary: 'Approve payout (ADMIN)' })
+  @ApiOperation({ summary: 'Approve payout request (ADMIN)' })
   approve(@Req() req: any, @Param('id') payoutId: string) {
     return this.payoutService.approve(req.user, payoutId);
   }
 
-  // ADMIN -> reject payout
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   @Post(':id/reject')
-  @ApiOperation({ summary: 'Reject payout (ADMIN)' })
+  @ApiOperation({ summary: 'Reject payout request (ADMIN)' })
   reject(
     @Req() req: any,
     @Param('id') payoutId: string,

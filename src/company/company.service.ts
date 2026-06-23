@@ -22,4 +22,29 @@ export class CompanyService {
       },
     });
   }
+
+  async getPublicSellerProfile(id: string) {
+    const company = await this.prisma.company.findUnique({
+      where: { id },
+      include: {
+        products: {
+          orderBy: {
+            createdAt: 'desc',
+          },
+        },
+        sellerReviews: {
+          orderBy: {
+            createdAt: 'desc',
+          },
+          take: 10,
+        },
+      },
+    });
+
+    if (!company) {
+      throw new NotFoundException('Şirket bulunamadı');
+    }
+
+    return company;
+  }
 }

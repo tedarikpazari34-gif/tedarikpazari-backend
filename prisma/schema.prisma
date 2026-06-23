@@ -7,10 +7,6 @@ datasource db {
   url      = "file:./dev.db"
 }
 
-//////////////////////////////////////////////////////////
-// ENUMS
-//////////////////////////////////////////////////////////
-
 enum CompanyStatus {
   PENDING
   APPROVED
@@ -91,19 +87,26 @@ enum Role {
   SELLER
   LOGISTICS
 }
+
 enum NotificationType {
   RFQ
   QUOTE
   ORDER
   PAYMENT
+  PAYOUT
   COMPANY
   SYSTEM
 }
 
-//////////////////////////////////////////////////////////
-// MODELS
-//////////////////////////////////////////////////////////
-
+enum ChatThreadType {
+  RFQ
+  ORDER
+}
+enum PayoutRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
 model Company {
   id                   String        @id @default(cuid())
   name                 String
@@ -117,6 +120,17 @@ model Company {
   role                 Role          @default(BUYER)
   iyzicoSubMerchantKey String?
   createdAt            DateTime      @default(now())
+
+  logo           String?
+  banner         String?
+  description    String?
+  website        String?
+  city           String?
+  country        String?
+  responseTime   Int     @default(0)
+  completedDeals Int     @default(0)
+  rating         Float   @default(0)
+  reviewCount    Int     @default(0)
 
   users      User[]
   products   Product[]
@@ -132,10 +146,17 @@ model Company {
   ledgerFrom LedgerEntry[] @relation("LedgerFrom")
   ledgerTo   LedgerEntry[] @relation("LedgerTo")
 
+  buyerReviews  Review[] @relation("BuyerReviews")
+  sellerReviews Review[] @relation("SellerReviews")
+
+  buyerChatThreads  ChatThread[] @relation("BuyerChatThreads")
+  sellerChatThreads ChatThread[] @relation("SellerChatThreads")
+
   wallet              CompanyWallet?
   paymentTransactions PaymentTransaction[]
   shippingRFQs        ShippingRFQ[]
   shippingQuotes      ShippingQuote[]
+  payoutRequests PayoutRequest[]
 }
 
 model CompanyWallet {
@@ -157,11 +178,13 @@ model User {
   role      Role     @default(BUYER)
   companyId String
   createdAt DateTime @default(now())
+
+  chatMessages ChatMessage[]
+  auditLogs    AuditLog[]
+
+  company       Company        @relation(fields: [companyId], references: [id])
   notifications Notification[]
-
-  company Company @relation(fields: [companyId], references: [id])
 }
-
 
 model Category {
   id        String     @id @default(cuid())
@@ -183,8 +206,7 @@ model Product {
 
   title       String
   description String?
-
-  imageUrl String?
+  imageUrl    String?
 
   unitType  String
   moq       Int
@@ -241,6 +263,8 @@ model RFQ {
   quotes Quote[]
   order  Order?
 
+  chatThreads ChatThread[]
+
   @@index([productId])
   @@index([buyerId])
   @@index([status])
@@ -282,7 +306,7 @@ model Order {
   payoutAmount Decimal     @default(0)
   status       OrderStatus @default(PENDING_PAYMENT)
   createdAt    DateTime    @default(now())
-  
+
   shippingTrackingNo String?
   shippingCompany    String?
   shippedAt          DateTime?
@@ -306,6 +330,10 @@ model Order {
   ledger              LedgerEntry[]
   paymentTransactions PaymentTransaction[]
   shippingRFQs        ShippingRFQ[]
+
+  review Review? @relation("OrderReview")
+
+  chatThreads ChatThread[]
 
   @@index([buyerId])
   @@index([sellerId])
@@ -430,6 +458,8 @@ model AuditLog {
   userAgent      String?
   metadata       Json?
   createdAt      DateTime @default(now())
+  user           User?    @relation(fields: [userId], references: [id])
+  userId         String?
 
   @@index([createdAt])
   @@index([actorCompanyId])
@@ -482,6 +512,7 @@ model PaymentTransaction {
   @@index([orderId])
   @@index([sellerId])
 }
+
 model Notification {
   id        String           @id @default(cuid())
   userId    String
@@ -498,4 +529,82 @@ model Notification {
   @@index([type])
   @@index([isRead])
   @@index([createdAt])
+}
+
+model Review {
+  id        String   @id @default(cuid())
+  orderId   String   @unique
+  buyerId   String
+  sellerId  String
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+
+  order  Order   @relation("OrderReview", fields: [orderId], references: [id])
+  buyer  Company @relation("BuyerReviews", fields: [buyerId], references: [id])
+  seller Company @relation("SellerReviews", fields: [sellerId], references: [id])
+
+  @@index([sellerId])
+  @@index([buyerId])
+}
+
+model ChatThread {
+  id        String         @id @default(cuid())
+  type      ChatThreadType
+  rfqId     String?
+  orderId   String?
+  buyerId   String
+  sellerId  String
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  buyer    Company       @relation("BuyerChatThreads", fields: [buyerId], references: [id])
+  seller   Company       @relation("SellerChatThreads", fields: [sellerId], references: [id])
+  rfq      RFQ?          @relation(fields: [rfqId], references: [id])
+  order    Order?        @relation(fields: [orderId], references: [id])
+  messages ChatMessage[]
+
+  @@unique([rfqId, buyerId, sellerId])
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([rfqId])
+  @@index([orderId])
+}
+
+model ChatMessage {
+  id        String  @id @default(cuid())
+  threadId  String
+  senderId  String
+  content   String
+  isFlagged Boolean @default(false)
+
+  fileUrl  String?
+  fileName String?
+  fileType String?
+
+  isRead    Boolean   @default(false)
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  thread ChatThread @relation(fields: [threadId], references: [id])
+  sender User       @relation(fields: [senderId], references: [id])
+
+  @@index([threadId])
+  @@index([senderId])
+  @@index([createdAt])
+}
+model PayoutRequest {
+  id          String              @id @default(cuid())
+  companyId   String
+  amount      Decimal
+  iban        String
+  status      PayoutRequestStatus @default(PENDING)
+  adminNote   String?
+  createdAt   DateTime            @default(now())
+  processedAt DateTime?
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
+  @@index([status])
 }

@@ -1,6 +1,8 @@
 import { Controller, Get, Req, UseGuards } from '@nestjs/common';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AdminGuard } from '../common/guards/admin.guard';
 import { AdminMetricsService } from './admin-metrics.service';
 
 @ApiTags('Admin Metrics')
@@ -9,14 +11,14 @@ import { AdminMetricsService } from './admin-metrics.service';
 export class AdminMetricsController {
   constructor(private readonly adminMetricsService: AdminMetricsService) {}
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   @Get('overview')
   @ApiOperation({ summary: 'Admin metrics overview (ADMIN)' })
   overview(@Req() req: any) {
     return this.adminMetricsService.overview(req.user);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   @Get('timeseries')
   @ApiOperation({ summary: 'Admin metrics timeseries (ADMIN)' })
   timeseries(@Req() req: any) {

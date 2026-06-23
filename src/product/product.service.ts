@@ -14,11 +14,27 @@ export class ProductService {
   constructor(private readonly prisma: PrismaService) {}
 
   async list(query: {
-    categoryId?: string;
-    sellerId?: string;
-    q?: string;
-  }) {
-    const { categoryId, sellerId, q } = query;
+  categoryId?: string;
+  sellerId?: string;
+  q?: string;
+  minPrice?: string;
+  maxPrice?: string;
+  minMoq?: string;
+  maxMoq?: string;
+  city?: string;
+  verified?: string;
+}) {
+  const {
+    categoryId,
+    sellerId,
+    q,
+    minPrice,
+    maxPrice,
+    minMoq,
+    maxMoq,
+    city,
+    verified,
+  } = query;
 
     let categoryFilter = {};
 
@@ -54,6 +70,30 @@ export class ProductService {
             }
           : {}),
         ...(sellerId ? { sellerId } : {}),
+        ...(minPrice || maxPrice
+  ? {
+      basePrice: {
+        ...(minPrice ? { gte: Number(minPrice) } : {}),
+        ...(maxPrice ? { lte: Number(maxPrice) } : {}),
+      },
+    }
+  : {}),
+...(minMoq || maxMoq
+  ? {
+      moq: {
+        ...(minMoq ? { gte: Number(minMoq) } : {}),
+        ...(maxMoq ? { lte: Number(maxMoq) } : {}),
+      },
+    }
+  : {}),
+...(city || verified
+  ? {
+      seller: {
+        ...(city ? { city: { contains: city } } : {}),
+        ...(verified === "true" ? { verified: true } : {}),
+      },
+    }
+  : {}),
       },
       include: {
         category: true,
@@ -219,7 +259,7 @@ export class ProductService {
         vatRate: body.vatRate || null,
         rfqEnabled: body.rfqEnabled ?? true,
         isActive: true,
-        isApproved: true,
+        isApproved: false,
       },
       include: {
         category: true,

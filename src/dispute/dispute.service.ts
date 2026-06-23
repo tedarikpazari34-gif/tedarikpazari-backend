@@ -16,10 +16,14 @@ import {
   Role,
 } from '@prisma/client';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class DisputeService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+  private readonly prisma: PrismaService,
+  private readonly notificationService: NotificationService,
+) {}
 
   private async ensureWallet(tx: Prisma.TransactionClient, companyId: string) {
     return tx.companyWallet.upsert({
@@ -72,16 +76,34 @@ export class DisputeService {
       throw new BadRequestException('Bu order için zaten açık dispute var');
     }
 
-    return this.prisma.dispute.create({
-      data: {
-        orderId,
-        buyerId: order.buyerId,
-        sellerId: order.sellerId,
-        reason: reason.trim(),
-        description: description?.trim() || null,
-        status: DisputeStatus.OPEN,
-      },
-    });
+    const dispute = await this.prisma.dispute.create({
+  data: {
+    orderId,
+    buyerId: order.buyerId,
+    sellerId: order.sellerId,
+    reason: reason.trim(),
+    description: description?.trim() || null,
+    status: DisputeStatus.OPEN,
+  },
+});
+
+const sellerUser = await this.prisma.user.findFirst({
+  where: {
+    companyId: order.sellerId,
+  },
+});
+
+if (sellerUser) {
+  await this.notificationService.createNotification({
+    userId: sellerUser.id,
+    type: 'ORDER',
+    title: 'Dispute Açıldı',
+    message: 'Bir siparişiniz için alıcı dispute açtı.',
+    link: '/seller/orders',
+  });
+}
+
+return dispute;
   }
 
   async sellerRespond(user: any, disputeId: string, sellerNote: string) {
@@ -198,7 +220,7 @@ export class DisputeService {
       PARTIAL_REFUND: EscrowEventType.PARTIAL_REFUND,
     };
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       await this.ensureWallet(tx, order.buyerId);
       await this.ensureWallet(tx, order.sellerId);
 
@@ -438,5 +460,41 @@ export class DisputeService {
         order: orderUpdated,
       };
     });
+    const buyerUser = await this.prisma.user.findFirst({
+  where: { companyId: order.buyerId },
+});
+
+const sellerUser = await this.prisma.user.findFirst({
+  where: { companyId: order.sellerId },
+});
+
+const resultText =
+  resolution === DisputeResolution.RELEASE_TO_SELLER
+    ? 'Dispute satıcı lehine sonuçlandı.'
+    : resolution === DisputeResolution.REFUND_TO_BUYER
+      ? 'Dispute alıcı lehine sonuçlandı. Tutar iade edildi.'
+      : 'Dispute kısmi iade ile sonuçlandı.';
+
+if (buyerUser) {
+  await this.notificationService.createNotification({
+    userId: buyerUser.id,
+    type: 'ORDER',
+    title: 'Dispute Sonuçlandı',
+    message: resultText,
+    link: '/buyer/orders',
+  });
+}
+
+if (sellerUser) {
+  await this.notificationService.createNotification({
+    userId: sellerUser.id,
+    type: 'ORDER',
+    title: 'Dispute Sonuçlandı',
+    message: resultText,
+    link: '/seller/orders',
+  });
+}
+
+return result;
   }
 }

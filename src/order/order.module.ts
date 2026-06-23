@@ -1,10 +1,11 @@
 import { Module } from '@nestjs/common';
-import { OrderController } from './order.controller';
 import { OrderService } from './order.service';
+import { OrderController } from './order.controller';
 import { PrismaModule } from '../prisma/prisma.module';
-
+import { NotificationModule } from '../notification/notification.module';
+import { MailModule } from '../mail/mail.module';
 @Module({
-  imports: [PrismaModule],   // 🔴 BU SATIR ŞART
+  imports: [PrismaModule, NotificationModule, MailModule],
   controllers: [OrderController],
   providers: [OrderService],
 })

@@ -26,9 +26,14 @@ async function bootstrap() {
    * CORS
    */
   app.enableCors({
-    origin: true,
-    credentials: true,
-  });
+  origin: [
+    'http://localhost:5173',
+    'https://tedarikpazari.com',
+    'https://www.tedarikpazari.com',
+    'https://tedarikci-frontend.onrender.com',
+  ],
+  credentials: true,
+});
 
   /**
    * GLOBAL VALIDATION

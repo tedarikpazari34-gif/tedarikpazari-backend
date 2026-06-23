@@ -1,4 +1,4 @@
-import { Controller, Patch, Param } from '@nestjs/common';
+import { Controller, Patch, Param, Get } from '@nestjs/common';
 import { CompanyService } from './company.service';
 
 @Controller('company')
@@ -9,4 +9,8 @@ export class CompanyController {
   verifyCompany(@Param('id') id: string) {
     return this.companyService.verifyCompany(id);
   }
+  @Get(':id/public')
+getPublicSellerProfile(@Param('id') id: string) {
+  return this.companyService.getPublicSellerProfile(id);
+}
 }

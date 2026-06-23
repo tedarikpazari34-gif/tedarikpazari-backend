@@ -23,6 +23,8 @@ import { DashboardModule } from './dashboard/dashboard.module';
 import { CompanyModule } from './company/company.module';
 import { ShippingModule } from './shipping/shipping.module';
 import { NotificationModule } from './notification/notification.module';
+import { ReviewModule } from './review/review.module';
+import { ChatModule } from './chat/chat.module';
 
 @Module({
   imports: [
@@ -49,6 +51,8 @@ import { NotificationModule } from './notification/notification.module';
     CompanyModule,
     ShippingModule,
     NotificationModule,
+    ReviewModule,
+    ChatModule,
   ],
   controllers: [AppController],
   providers: [],

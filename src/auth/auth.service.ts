@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import axios from 'axios';
 
 @Injectable()
 export class AuthService {
@@ -11,8 +12,37 @@ export class AuthService {
     private readonly jwt: JwtService,
   ) {}
 
+  private async verifyRecaptcha(token?: string) {
+    const secret = process.env.RECAPTCHA_SECRET_KEY;
+
+    if (!secret) {
+      throw new BadRequestException('reCAPTCHA secret key eksik');
+    }
+
+    if (!token) {
+      throw new BadRequestException('reCAPTCHA doğrulaması zorunlu');
+    }
+
+    const params = new URLSearchParams();
+    params.append('secret', secret);
+    params.append('response', token);
+
+    const { data } = await axios.post(
+      'https://www.google.com/recaptcha/api/siteverify',
+      params,
+    );
+
+    if (!data?.success) {
+      throw new BadRequestException('reCAPTCHA doğrulanamadı');
+    }
+
+    return true;
+  }
+
   async signup(data: any) {
-    const { companyName, email, password, role } = data;
+    const { companyName, email, password, role, recaptchaToken } = data;
+
+    await this.verifyRecaptcha(recaptchaToken);
 
     if (!companyName || !email || !password || !role) {
       throw new BadRequestException('Eksik bilgi');

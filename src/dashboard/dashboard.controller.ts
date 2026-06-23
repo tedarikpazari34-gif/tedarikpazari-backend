@@ -11,4 +11,9 @@ export class DashboardController {
   async seller(@Req() req: any) {
     return this.dashboardService.sellerDashboard(req.user.companyId);
   }
+  @UseGuards(JwtAuthGuard)
+@Get('admin')
+async admin() {
+  return this.dashboardService.adminDashboard();
+}
 }

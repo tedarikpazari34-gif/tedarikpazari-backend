@@ -8,13 +8,15 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateQuoteDto } from './dto/create-quote.dto';
 import { NotificationService } from '../notification/notification.service';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class QuoteService {
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly notificationService: NotificationService,
-  ) {}
+  private readonly prisma: PrismaService,
+  private readonly notificationService: NotificationService,
+  private readonly mailService: MailService,
+) {}
 
   async create(user: any, body: CreateQuoteDto) {
     if (!user || user.role !== 'SELLER') {
@@ -97,7 +99,28 @@ export class QuoteService {
         link: `/buyer/rfqs/${rfq.id}`,
       });
     }
-
+    try {
+  await Promise.all(
+    (rfq.buyer?.users || [])
+      .filter((buyerUser) => buyerUser.email)
+      .map((buyerUser) =>
+        this.mailService.sendMail({
+          to: buyerUser.email,
+          subject: 'Tedarik Pazarı - Yeni teklif geldi',
+          text: `${rfq.product.title || 'Ürün'} için yeni teklif aldınız.`,
+          html: `
+            <div style="font-family:Arial,sans-serif;line-height:1.6">
+              <h2>Yeni teklif geldi</h2>
+              <p><strong>${rfq.product.title || 'Ürün'}</strong> için yeni teklif aldınız.</p>
+              <p>Teklifi görüntülemek için Tedarik Pazarı hesabınıza giriş yapın.</p>
+            </div>
+          `,
+        }),
+      ),
+  );
+} catch (mailError) {
+  console.error('QUOTE MAIL ERROR:', mailError);
+}
     return quote;
   }
 
