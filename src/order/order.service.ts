@@ -410,6 +410,7 @@ async ship(user: any, orderId: string) {
     },
   });
 
+  try {
   const buyerUser = await this.prisma.user.findFirst({
     where: { companyId: order.buyerId },
   });
@@ -439,6 +440,9 @@ async ship(user: any, orderId: string) {
       `,
     });
   }
+} catch (err) {
+  console.error('ship notification/mail failed', err);
+}
 
   return {
     message: 'Order marked as SHIPPED',
