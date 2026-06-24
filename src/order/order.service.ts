@@ -525,40 +525,44 @@ async complete(user: any, orderId: string) {
       },
     });
 
-    return {
+   return {
       message: 'Order completed and escrow released',
       order: updated,
     };
   });
 
-  const sellerUser = await this.prisma.user.findFirst({
-    where: { companyId: order.sellerId },
-  });
-
-  if (sellerUser) {
-    await this.notificationService.createNotification({
-      userId: sellerUser.id,
-      type: 'ORDER',
-      title: 'Sipariş Tamamlandı',
-      message:
-        'Alıcı siparişi teslim aldığını onayladı. Tutar bakiyenize aktarıldı.',
-      link: '/seller/orders',
+  try {
+    const sellerUser = await this.prisma.user.findFirst({
+      where: { companyId: order.sellerId },
     });
-  }
 
-  if (sellerUser?.email) {
-    await this.mailService.sendMail({
-      to: sellerUser.email,
-      subject: 'Tedarik Pazarı - Sipariş tamamlandı',
-      text: 'Alıcı siparişi teslim aldığını onayladı. Tutar bakiyenize aktarıldı.',
-      html: `
-        <div style="font-family:Arial,sans-serif;line-height:1.6">
-          <h2>Sipariş tamamlandı</h2>
-          <p>Alıcı siparişi teslim aldığını onayladı.</p>
-          <p>Tutar bakiyenize aktarıldı.</p>
-        </div>
-      `,
-    });
+    if (sellerUser) {
+      await this.notificationService.createNotification({
+        userId: sellerUser.id,
+        type: 'ORDER',
+        title: 'Sipariş Tamamlandı',
+        message:
+          'Alıcı siparişi teslim aldığını onayladı. Tutar bakiyenize aktarıldı.',
+        link: '/seller/orders',
+      });
+    }
+
+    if (sellerUser?.email) {
+      await this.mailService.sendMail({
+        to: sellerUser.email,
+        subject: 'Tedarik Pazarı - Sipariş tamamlandı',
+        text: 'Alıcı siparişi teslim aldığını onayladı. Tutar bakiyenize aktarıldı.',
+        html: `
+          <div style="font-family:Arial,sans-serif;line-height:1.6">
+            <h2>Sipariş tamamlandı</h2>
+            <p>Alıcı siparişi teslim aldığını onayladı.</p>
+            <p>Tutar bakiyenize aktarıldı.</p>
+          </div>
+        `,
+      });
+    }
+  } catch (err) {
+    console.error('complete notification/mail failed', err);
   }
 
   return result;
