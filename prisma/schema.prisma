@@ -102,11 +102,20 @@ enum ChatThreadType {
   RFQ
   ORDER
 }
+
 enum PayoutRequestStatus {
   PENDING
   APPROVED
   REJECTED
 }
+
+enum ShippingOrderStatus {
+  PENDING_PICKUP
+  PICKED_UP
+  IN_TRANSIT
+  DELIVERED
+}
+
 model Company {
   id                   String        @id @default(cuid())
   name                 String
@@ -156,6 +165,11 @@ model Company {
   paymentTransactions PaymentTransaction[]
   shippingRFQs        ShippingRFQ[]
   shippingQuotes      ShippingQuote[]
+
+  shippingOrdersAsBuyer     ShippingOrder[] @relation("ShippingOrderBuyer")
+  shippingOrdersAsSeller    ShippingOrder[] @relation("ShippingOrderSeller")
+  shippingOrdersAsLogistics ShippingOrder[] @relation("ShippingOrderLogistics")
+
   payoutRequests PayoutRequest[]
 }
 
@@ -330,6 +344,7 @@ model Order {
   ledger              LedgerEntry[]
   paymentTransactions PaymentTransaction[]
   shippingRFQs        ShippingRFQ[]
+  shippingOrders      ShippingOrder[]
 
   review Review? @relation("OrderReview")
 
@@ -478,9 +493,10 @@ model ShippingRFQ {
   status      String   @default("OPEN")
   createdAt   DateTime @default(now())
 
-  order  Order           @relation(fields: [orderId], references: [id])
-  buyer  Company         @relation(fields: [buyerId], references: [id])
-  quotes ShippingQuote[]
+  order         Order           @relation(fields: [orderId], references: [id])
+  buyer         Company         @relation(fields: [buyerId], references: [id])
+  quotes        ShippingQuote[]
+  shippingOrder ShippingOrder?
 }
 
 model ShippingQuote {
@@ -493,8 +509,47 @@ model ShippingQuote {
   status       String   @default("SENT")
   createdAt    DateTime @default(now())
 
-  rfq     ShippingRFQ @relation(fields: [rfqId], references: [id])
-  company Company     @relation(fields: [companyId], references: [id])
+  rfq           ShippingRFQ    @relation(fields: [rfqId], references: [id])
+  company       Company        @relation(fields: [companyId], references: [id])
+  shippingOrder ShippingOrder?
+}
+
+model ShippingOrder {
+  id String @id @default(cuid())
+
+  shippingRfqId   String @unique
+  shippingQuoteId String @unique
+
+  buyerId     String
+  sellerId    String
+  logisticsId String
+  orderId     String
+
+  status ShippingOrderStatus @default(PENDING_PICKUP)
+
+  pickedUpAt  DateTime?
+  shippedAt   DateTime?
+  deliveredAt DateTime?
+
+  trackingNo      String?
+  shippingCompany String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  shippingRfq   ShippingRFQ   @relation(fields: [shippingRfqId], references: [id])
+  shippingQuote ShippingQuote @relation(fields: [shippingQuoteId], references: [id])
+  order         Order         @relation(fields: [orderId], references: [id])
+
+  buyer     Company @relation("ShippingOrderBuyer", fields: [buyerId], references: [id])
+  seller    Company @relation("ShippingOrderSeller", fields: [sellerId], references: [id])
+  logistics Company @relation("ShippingOrderLogistics", fields: [logisticsId], references: [id])
+
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([logisticsId])
+  @@index([orderId])
+  @@index([status])
 }
 
 model PaymentTransaction {
@@ -593,6 +648,7 @@ model ChatMessage {
   @@index([senderId])
   @@index([createdAt])
 }
+
 model PayoutRequest {
   id          String              @id @default(cuid())
   companyId   String

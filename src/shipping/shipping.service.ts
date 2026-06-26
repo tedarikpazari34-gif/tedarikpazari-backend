@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
+
 @Injectable()
 export class ShippingService {
   constructor(private prisma: PrismaService) {}
@@ -184,11 +185,16 @@ export class ShippingService {
     }
 
     const quote = await this.prisma.shippingQuote.findUnique({
-      where: { id: quoteId },
+  where: { id: quoteId },
+  include: {
+    company: true,
+    rfq: {
       include: {
-        rfq: true,
+        order: true,
       },
-    });
+    },
+  },
+});
 
     if (!quote) {
       throw new NotFoundException('Teklif bulunamadı');
@@ -217,11 +223,186 @@ export class ShippingService {
       });
 
       await tx.shippingRFQ.update({
-        where: { id: quote.rfqId },
-        data: { status: 'CLOSED' },
-      });
+  where: { id: quote.rfqId },
+  data: { status: 'CLOSED' },
+});
 
-      return { message: 'Nakliye firması seçildi' };
+const shippingOrder = await tx.shippingOrder.create({
+  data: {
+    shippingRfqId: quote.rfq.id,
+    shippingQuoteId: quote.id,
+    buyerId: quote.rfq.buyerId,
+    sellerId: quote.rfq.order.sellerId,
+    logisticsId: quote.companyId,
+    orderId: quote.rfq.orderId,
+    status: 'PENDING_PICKUP',
+    shippingCompany: quote.company?.name || 'Lojistik Firması',
+    trackingNo: `LGT-${Date.now()}`,
+  },
+});
+
+return {
+  message: 'Nakliye firması seçildi ve taşıma siparişi oluşturuldu',
+  shippingOrder,
+};
+    });
+  }
+  async listShippingOrders(user: any) {
+    const role = this.role(user);
+
+    if (role === 'LOGISTICS') {
+      return this.prisma.shippingOrder.findMany({
+        where: { logisticsId: user.companyId },
+        include: {
+          order: {
+            include: {
+              rfq: { include: { product: true } },
+              buyer: true,
+              seller: true,
+            },
+          },
+          shippingRfq: true,
+          shippingQuote: true,
+          buyer: true,
+          seller: true,
+          logistics: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
+    if (role === 'BUYER') {
+      return this.prisma.shippingOrder.findMany({
+        where: { buyerId: user.companyId },
+        include: {
+          order: {
+            include: {
+              rfq: { include: { product: true } },
+              buyer: true,
+              seller: true,
+            },
+          },
+          shippingRfq: true,
+          shippingQuote: true,
+          buyer: true,
+          seller: true,
+          logistics: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
+    if (role === 'SELLER') {
+      return this.prisma.shippingOrder.findMany({
+        where: { sellerId: user.companyId },
+        include: {
+          order: {
+            include: {
+              rfq: { include: { product: true } },
+              buyer: true,
+              seller: true,
+            },
+          },
+          shippingRfq: true,
+          shippingQuote: true,
+          buyer: true,
+          seller: true,
+          logistics: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    }
+
+    throw new ForbiddenException('Yetkisiz');
+  }
+
+  async pickup(user: any, id: string) {
+    if (this.role(user) !== 'LOGISTICS') {
+      throw new ForbiddenException('Sadece LOGISTICS yük alabilir');
+    }
+
+    const order = await this.prisma.shippingOrder.findUnique({
+      where: { id },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Nakliye siparişi bulunamadı');
+    }
+
+    if (order.logisticsId !== user.companyId) {
+      throw new ForbiddenException('Bu nakliye siparişi size ait değil');
+    }
+
+    if (order.status !== 'PENDING_PICKUP') {
+      throw new ForbiddenException(`Durum uygun değil: ${order.status}`);
+    }
+
+    return this.prisma.shippingOrder.update({
+      where: { id },
+      data: {
+        status: 'PICKED_UP',
+        pickedUpAt: new Date(),
+      },
+    });
+  }
+
+  async transit(user: any, id: string) {
+    if (this.role(user) !== 'LOGISTICS') {
+      throw new ForbiddenException('Sadece LOGISTICS yola çıkarabilir');
+    }
+
+    const order = await this.prisma.shippingOrder.findUnique({
+      where: { id },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Nakliye siparişi bulunamadı');
+    }
+
+    if (order.logisticsId !== user.companyId) {
+      throw new ForbiddenException('Bu nakliye siparişi size ait değil');
+    }
+
+    if (order.status !== 'PICKED_UP') {
+      throw new ForbiddenException(`Durum uygun değil: ${order.status}`);
+    }
+
+    return this.prisma.shippingOrder.update({
+      where: { id },
+      data: {
+        status: 'IN_TRANSIT',
+        shippedAt: new Date(),
+      },
+    });
+  }
+
+  async deliver(user: any, id: string) {
+    if (this.role(user) !== 'LOGISTICS') {
+      throw new ForbiddenException('Sadece LOGISTICS teslim edebilir');
+    }
+
+    const order = await this.prisma.shippingOrder.findUnique({
+      where: { id },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Nakliye siparişi bulunamadı');
+    }
+
+    if (order.logisticsId !== user.companyId) {
+      throw new ForbiddenException('Bu nakliye siparişi size ait değil');
+    }
+
+    if (order.status !== 'IN_TRANSIT') {
+      throw new ForbiddenException(`Durum uygun değil: ${order.status}`);
+    }
+
+    return this.prisma.shippingOrder.update({
+      where: { id },
+      data: {
+        status: 'DELIVERED',
+        deliveredAt: new Date(),
+      },
     });
   }
 }

@@ -44,4 +44,27 @@ export class ShippingController {
   accept(@Req() req: any, @Param('id') id: string) {
     return this.service.acceptQuote(req.user, id);
   }
+  @UseGuards(JwtAuthGuard, CompanyStatusGuard)
+@Get("orders")
+orders(@Req() req: any) {
+  return this.service.listShippingOrders(req.user);
+}
+
+@UseGuards(JwtAuthGuard, CompanyStatusGuard)
+@Post("orders/:id/pickup")
+pickup(@Req() req: any, @Param("id") id: string) {
+  return this.service.pickup(req.user, id);
+}
+
+@UseGuards(JwtAuthGuard, CompanyStatusGuard)
+@Post("orders/:id/transit")
+transit(@Req() req: any, @Param("id") id: string) {
+  return this.service.transit(req.user, id);
+}
+
+@UseGuards(JwtAuthGuard, CompanyStatusGuard)
+@Post("orders/:id/deliver")
+deliver(@Req() req: any, @Param("id") id: string) {
+  return this.service.deliver(req.user, id);
+}
 }
