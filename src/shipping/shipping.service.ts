@@ -43,6 +43,17 @@ export class ShippingService {
     if (order.buyerId !== user.companyId) {
       throw new ForbiddenException('Bu sipariş size ait değil');
     }
+    const existing = await this.prisma.shippingRFQ.findFirst({
+  where: {
+    orderId: body.orderId,
+  },
+});
+
+if (existing) {
+  throw new ForbiddenException(
+    'Bu sipariş için nakliye talebi zaten oluşturulmuş.',
+  );
+}
 
     return this.prisma.shippingRFQ.create({
       data: {
@@ -405,4 +416,7 @@ return {
       },
     });
   }
-}
+
+  }
+
+  
