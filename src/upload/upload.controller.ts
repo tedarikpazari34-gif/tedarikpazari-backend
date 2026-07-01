@@ -42,7 +42,26 @@ const imageFileFilter = (_req: any, file: any, cb: any) => {
     );
   }
 };
+const disputeFileFilter = (_req: any, file: any, cb: any) => {
+  const allowedExt = /jpg|jpeg|png|webp|pdf/;
+  const ext = extname(file.originalname).toLowerCase();
 
+  const validExt = allowedExt.test(ext);
+  const validMime =
+    file.mimetype === 'image/jpeg' ||
+    file.mimetype === 'image/png' ||
+    file.mimetype === 'image/webp' ||
+    file.mimetype === 'application/pdf';
+
+  if (validExt && validMime) {
+    cb(null, true);
+  } else {
+    cb(
+      new BadRequestException('Sadece jpg, jpeg, png, webp, pdf yüklenebilir'),
+      false,
+    );
+  }
+};
 @ApiTags('Upload')
 @Controller('upload')
 export class UploadController {
@@ -79,7 +98,41 @@ export class UploadController {
       imageUrl: `/uploads/${file.filename}`,
     };
   }
+  @Post('dispute')
+@ApiConsumes('multipart/form-data')
+@ApiBody({
+  schema: {
+    type: 'object',
+    properties: {
+      file: {
+        type: 'string',
+        format: 'binary',
+      },
+    },
+    required: ['file'],
+  },
+})
+@UseInterceptors(
+  FileInterceptor('file', {
+    storage,
+    fileFilter: disputeFileFilter,
+    limits: {
+      fileSize: 10 * 1024 * 1024,
+    },
+  }),
+)
+uploadDisputeFile(@UploadedFile() file: any) {
+  if (!file) {
+    throw new BadRequestException('Dosya yüklenemedi');
+  }
 
+  return {
+    message: 'Dispute dosyası yüklendi',
+    fileUrl: `/uploads/${file.filename}`,
+    fileName: file.originalname,
+    fileType: file.mimetype,
+  };
+}
   @Post('multiple')
   @ApiConsumes('multipart/form-data')
   @ApiBody({

@@ -148,7 +148,10 @@ return dispute;
       return this.prisma.dispute.findMany({
         where: { buyerId: user.companyId },
         orderBy: { createdAt: 'desc' },
-        include: { order: true },
+        include: {
+  order: true,
+  files: true,
+},
       });
     }
 
@@ -156,7 +159,10 @@ return dispute;
       return this.prisma.dispute.findMany({
         where: { sellerId: user.companyId },
         orderBy: { createdAt: 'desc' },
-        include: { order: true },
+        include: {
+  order: true,
+  files: true,
+},
       });
     }
 
@@ -170,7 +176,10 @@ return dispute;
 
     return this.prisma.dispute.findMany({
       orderBy: { createdAt: 'desc' },
-      include: { order: true },
+      include: {
+  order: true,
+  files: true,
+},
     });
   }
 
@@ -181,7 +190,10 @@ return dispute;
 
     const dispute = await this.prisma.dispute.findUnique({
       where: { id: disputeId },
-      include: { order: true },
+      include: {
+  order: true,
+  files: true,
+},
     });
 
     if (!dispute) {
@@ -497,4 +509,31 @@ if (sellerUser) {
 
 return result;
   }
+  async addFile(user: any, disputeId: string, body: any) {
+  const dispute = await this.prisma.dispute.findUnique({
+    where: { id: disputeId },
+  });
+
+  if (!dispute) {
+    throw new NotFoundException('Dispute bulunamadı');
+  }
+
+  const isAdmin = user.role === 'ADMIN';
+  const isBuyer = dispute.buyerId === user.companyId;
+  const isSeller = dispute.sellerId === user.companyId;
+
+  if (!isAdmin && !isBuyer && !isSeller) {
+    throw new ForbiddenException('Bu dispute size ait değil');
+  }
+
+  return this.prisma.disputeFile.create({
+    data: {
+      disputeId,
+      url: body.url,
+      fileName: body.fileName,
+      fileType: body.fileType,
+      uploadedById: user.id,
+    },
+  });
+}
 }

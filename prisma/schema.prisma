@@ -414,9 +414,25 @@ model Dispute {
 
   escrowEvent   EscrowEvent?
   ledgerEntries LedgerEntry[]
+  files         DisputeFile[]
 
   @@index([orderId])
   @@index([status])
+}
+
+model DisputeFile {
+  id           String   @id @default(cuid())
+  disputeId    String
+  url          String
+  fileName     String?
+  fileType     String?
+  uploadedById String?
+  createdAt    DateTime @default(now())
+
+  dispute Dispute @relation(fields: [disputeId], references: [id])
+
+  @@index([disputeId])
+  @@index([uploadedById])
 }
 
 model EscrowEvent {

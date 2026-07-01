@@ -81,4 +81,14 @@ export class DisputeController {
     }
     return this.disputeService.resolve(req.user, id, body);
   }
+  @UseGuards(JwtAuthGuard)
+@Post(':id/files')
+@ApiOperation({ summary: 'Attach file to dispute' })
+addFile(
+  @Req() req: any,
+  @Param('id') id: string,
+  @Body() body: { url: string; fileName?: string; fileType?: string },
+) {
+  return this.disputeService.addFile(req.user, id, body);
+}
 }
