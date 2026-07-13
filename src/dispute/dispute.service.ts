@@ -21,9 +21,9 @@ import { NotificationService } from '../notification/notification.service';
 @Injectable()
 export class DisputeService {
   constructor(
-  private readonly prisma: PrismaService,
-  private readonly notificationService: NotificationService,
-) {}
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
+  ) {}
 
   private async ensureWallet(tx: Prisma.TransactionClient, companyId: string) {
     return tx.companyWallet.upsert({
@@ -38,8 +38,8 @@ export class DisputeService {
   }
 
   async open(user: any, orderId: string, reason: string, description?: string) {
-    if (user.role !== Role.BUYER) {
-      throw new ForbiddenException('Sadece BUYER dispute açabilir');
+    if (user.role !== Role.BUYER && user.role !== Role.SELLER) {
+      throw new ForbiddenException('Sadece BUYER veya SELLER dispute açabilir');
     }
 
     if (!reason?.trim()) {
@@ -54,12 +54,17 @@ export class DisputeService {
       throw new NotFoundException('Order not found');
     }
 
-    if (order.buyerId !== user.companyId) {
+    const isBuyer = order.buyerId === user.companyId;
+    const isSeller = order.sellerId === user.companyId;
+
+    if (!isBuyer && !isSeller) {
       throw new ForbiddenException('Bu order size ait değil');
     }
 
     if (order.escrowReleased === true) {
-      throw new BadRequestException('Escrow çözülmüş order için dispute açılamaz');
+      throw new BadRequestException(
+        'Escrow çözülmüş order için dispute açılamaz',
+      );
     }
 
     const existing = await this.prisma.dispute.findFirst({
@@ -77,33 +82,37 @@ export class DisputeService {
     }
 
     const dispute = await this.prisma.dispute.create({
-  data: {
-    orderId,
-    buyerId: order.buyerId,
-    sellerId: order.sellerId,
-    reason: reason.trim(),
-    description: description?.trim() || null,
-    status: DisputeStatus.OPEN,
-  },
-});
+      data: {
+        orderId,
+        buyerId: order.buyerId,
+        sellerId: order.sellerId,
+        reason: reason.trim(),
+        description: description?.trim() || null,
+        status: DisputeStatus.OPEN,
+      },
+    });
 
-const sellerUser = await this.prisma.user.findFirst({
-  where: {
-    companyId: order.sellerId,
-  },
-});
+    const openedByBuyer = user.role === Role.BUYER;
+    const targetCompanyId = openedByBuyer ? order.sellerId : order.buyerId;
 
-if (sellerUser) {
-  await this.notificationService.createNotification({
-    userId: sellerUser.id,
-    type: 'ORDER',
-    title: 'Dispute Açıldı',
-    message: 'Bir siparişiniz için alıcı dispute açtı.',
-    link: '/seller/orders',
-  });
-}
+    const targetUser = await this.prisma.user.findFirst({
+      where: {
+        companyId: targetCompanyId,
+      },
+    });
 
-return dispute;
+    if (targetUser) {
+      await this.notificationService.createNotification({
+        userId: targetUser.id,
+        type: 'ORDER',
+        title: 'Dispute Açıldı',
+        message: openedByBuyer
+          ? 'Bir siparişiniz için alıcı uyuşmazlık başlattı.'
+          : 'Bir siparişiniz için satıcı uyuşmazlık başlattı.',
+        link: openedByBuyer ? '/seller/orders' : '/buyer/orders',
+      });
+    }
+    return dispute;
   }
 
   async sellerRespond(user: any, disputeId: string, sellerNote: string) {
@@ -149,9 +158,9 @@ return dispute;
         where: { buyerId: user.companyId },
         orderBy: { createdAt: 'desc' },
         include: {
-  order: true,
-  files: true,
-},
+          order: true,
+          files: true,
+        },
       });
     }
 
@@ -160,9 +169,9 @@ return dispute;
         where: { sellerId: user.companyId },
         orderBy: { createdAt: 'desc' },
         include: {
-  order: true,
-  files: true,
-},
+          order: true,
+          files: true,
+        },
       });
     }
 
@@ -177,9 +186,9 @@ return dispute;
     return this.prisma.dispute.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
-  order: true,
-  files: true,
-},
+        order: true,
+        files: true,
+      },
     });
   }
 
@@ -191,9 +200,9 @@ return dispute;
     const dispute = await this.prisma.dispute.findUnique({
       where: { id: disputeId },
       include: {
-  order: true,
-  files: true,
-},
+        order: true,
+        files: true,
+      },
     });
 
     if (!dispute) {
@@ -245,7 +254,9 @@ return dispute;
       }
 
       if (new Prisma.Decimal(buyerWallet.locked).lt(escrowAmount)) {
-        throw new BadRequestException('Buyer locked bakiyesi escrow için yetersiz');
+        throw new BadRequestException(
+          'Buyer locked bakiyesi escrow için yetersiz',
+        );
       }
 
       const disputeUpdated = await tx.dispute.update({
@@ -306,7 +317,9 @@ return dispute;
           },
         });
 
-        const payoutAmountNew = new Prisma.Decimal(order.payoutAmount).add(escrowAmount);
+        const payoutAmountNew = new Prisma.Decimal(order.payoutAmount).add(
+          escrowAmount,
+        );
 
         const orderUpdated = await tx.order.update({
           where: { id: order.id },
@@ -391,7 +404,9 @@ return dispute;
       }
 
       if (refundAmount.gte(escrowAmount)) {
-        throw new BadRequestException('partialRefundAmount escrowAmount’tan küçük olmalı');
+        throw new BadRequestException(
+          'partialRefundAmount escrowAmount’tan küçük olmalı',
+        );
       }
 
       const sellerAmount = escrowAmount.sub(refundAmount);
@@ -439,7 +454,9 @@ return dispute;
         },
       });
 
-      const payoutAmountNew = new Prisma.Decimal(order.payoutAmount).add(sellerAmount);
+      const payoutAmountNew = new Prisma.Decimal(order.payoutAmount).add(
+        sellerAmount,
+      );
 
       const orderUpdated = await tx.order.update({
         where: { id: order.id },
@@ -473,67 +490,67 @@ return dispute;
       };
     });
     const buyerUser = await this.prisma.user.findFirst({
-  where: { companyId: order.buyerId },
-});
+      where: { companyId: order.buyerId },
+    });
 
-const sellerUser = await this.prisma.user.findFirst({
-  where: { companyId: order.sellerId },
-});
+    const sellerUser = await this.prisma.user.findFirst({
+      where: { companyId: order.sellerId },
+    });
 
-const resultText =
-  resolution === DisputeResolution.RELEASE_TO_SELLER
-    ? 'Dispute satıcı lehine sonuçlandı.'
-    : resolution === DisputeResolution.REFUND_TO_BUYER
-      ? 'Dispute alıcı lehine sonuçlandı. Tutar iade edildi.'
-      : 'Dispute kısmi iade ile sonuçlandı.';
+    const resultText =
+      resolution === DisputeResolution.RELEASE_TO_SELLER
+        ? 'Dispute satıcı lehine sonuçlandı.'
+        : resolution === DisputeResolution.REFUND_TO_BUYER
+          ? 'Dispute alıcı lehine sonuçlandı. Tutar iade edildi.'
+          : 'Dispute kısmi iade ile sonuçlandı.';
 
-if (buyerUser) {
-  await this.notificationService.createNotification({
-    userId: buyerUser.id,
-    type: 'ORDER',
-    title: 'Dispute Sonuçlandı',
-    message: resultText,
-    link: '/buyer/orders',
-  });
-}
+    if (buyerUser) {
+      await this.notificationService.createNotification({
+        userId: buyerUser.id,
+        type: 'ORDER',
+        title: 'Dispute Sonuçlandı',
+        message: resultText,
+        link: '/buyer/orders',
+      });
+    }
 
-if (sellerUser) {
-  await this.notificationService.createNotification({
-    userId: sellerUser.id,
-    type: 'ORDER',
-    title: 'Dispute Sonuçlandı',
-    message: resultText,
-    link: '/seller/orders',
-  });
-}
+    if (sellerUser) {
+      await this.notificationService.createNotification({
+        userId: sellerUser.id,
+        type: 'ORDER',
+        title: 'Dispute Sonuçlandı',
+        message: resultText,
+        link: '/seller/orders',
+      });
+    }
 
-return result;
+    return result;
   }
   async addFile(user: any, disputeId: string, body: any) {
-  const dispute = await this.prisma.dispute.findUnique({
-    where: { id: disputeId },
-  });
+    const dispute = await this.prisma.dispute.findUnique({
+      where: { id: disputeId },
+    });
 
-  if (!dispute) {
-    throw new NotFoundException('Dispute bulunamadı');
+    if (!dispute) {
+      throw new NotFoundException('Dispute bulunamadı');
+    }
+
+    const isAdmin = user.role === 'ADMIN';
+    const isBuyer = dispute.buyerId === user.companyId;
+    const isSeller = dispute.sellerId === user.companyId;
+
+    if (!isAdmin && !isBuyer && !isSeller) {
+      throw new ForbiddenException('Bu dispute size ait değil');
+    }
+
+    return this.prisma.disputeFile.create({
+      data: {
+        disputeId,
+        url: body.url,
+        fileName: body.fileName,
+        fileType: body.fileType,
+        uploadedById: user.id,
+      },
+    });
   }
-
-  const isAdmin = user.role === 'ADMIN';
-  const isBuyer = dispute.buyerId === user.companyId;
-  const isSeller = dispute.sellerId === user.companyId;
-
-  if (!isAdmin && !isBuyer && !isSeller) {
-    throw new ForbiddenException('Bu dispute size ait değil');
-  }
-
-  return this.prisma.disputeFile.create({
-    data: {
-      disputeId,
-      url: body.url,
-      fileName: body.fileName,
-      fileType: body.fileType,
-      uploadedById: user.id,
-    },
-  });
-}
 }
