@@ -40,7 +40,22 @@ export class AuthService {
   }
 
   async signup(data: any) {
-    const { companyName, email, password, role, recaptchaToken } = data;
+    const {
+      companyName,
+      email,
+      password,
+      role,
+      recaptchaToken,
+      fullName,
+      phone,
+      companyType,
+      category,
+      city,
+      district,
+      taxNumber,
+      taxOffice,
+      address,
+    } = data;
 
     await this.verifyRecaptcha(recaptchaToken);
 
@@ -62,6 +77,18 @@ export class AuthService {
       data: {
         name: companyName,
         role,
+        email,
+        phone: phone || null,
+        city: city || null,
+        taxNumber: taxNumber || null,
+        taxOffice: taxOffice || null,
+        address: {
+          address: address || '',
+          district: district || '',
+          companyType: companyType || '',
+          category: category || '',
+          fullName: fullName || '',
+        },
       },
     });
 
@@ -79,6 +106,7 @@ export class AuthService {
       data: {
         email,
         password: hashedPassword,
+        role,
         companyId: company.id,
       },
       include: {
