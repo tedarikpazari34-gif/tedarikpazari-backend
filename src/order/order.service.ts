@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { LedgerType, OrderStatus, Prisma, Role } from '@prisma/client';
 import { NotificationService } from '../notification/notification.service';
 import { MailService } from '../mail/mail.service';
+import { ShipOrderDto } from './dto/ship-order.dto';
 
 @Injectable()
 export class OrderService {
@@ -377,7 +378,7 @@ export class OrderService {
   };
 }
 
-async ship(user: any, orderId: string) {
+async ship(user: any, orderId: string, body: ShipOrderDto) {
   if (user.role !== Role.SELLER) {
     throw new ForbiddenException('Sadece SELLER kargoya verebilir');
   }
@@ -405,8 +406,8 @@ async ship(user: any, orderId: string) {
     data: {
       status: OrderStatus.SHIPPED,
       shippedAt: new Date(),
-      shippingTrackingNo: `TRK-${Date.now()}`,
-      shippingCompany: 'Yurtiçi Kargo',
+      shippingTrackingNo: body.shippingTrackingNo.trim(),
+      shippingCompany: body.shippingCompany.trim(),
     },
   });
 

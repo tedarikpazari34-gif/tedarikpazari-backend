@@ -1,4 +1,5 @@
 import {
+  Body,
   Controller,
   Get,
   Param,
@@ -8,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { OrderService } from './order.service';
+import { ShipOrderDto } from './dto/ship-order.dto';
 
 @Controller('orders')
 export class OrderController {
@@ -45,8 +47,12 @@ export class OrderController {
 
   @UseGuards(JwtAuthGuard)
   @Post(':id/ship')
-  ship(@Req() req: any, @Param('id') id: string) {
-    return this.orderService.ship(req.user, id);
+  ship(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() body: ShipOrderDto,
+  ) {
+    return this.orderService.ship(req.user, id, body);
   }
 
   @UseGuards(JwtAuthGuard)
