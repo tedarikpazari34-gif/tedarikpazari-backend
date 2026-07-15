@@ -9,8 +9,13 @@ export class CompanyController {
   verifyCompany(@Param('id') id: string) {
     return this.companyService.verifyCompany(id);
   }
+  @Get('homepage')
+  getHomepageData() {
+    return this.companyService.getHomepageData();
+  }
+
   @Get(':id/public')
-getPublicSellerProfile(@Param('id') id: string) {
+  getPublicSellerProfile(@Param('id') id: string) {
   return this.companyService.getPublicSellerProfile(id);
 }
 }
