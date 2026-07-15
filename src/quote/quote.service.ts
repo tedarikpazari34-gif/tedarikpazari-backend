@@ -169,6 +169,15 @@ export class QuoteService {
         seller: {
           select: {
             id: true,
+            name: true,
+            verified: true,
+            rating: true,
+            reviewCount: true,
+            completedDeals: true,
+            responseTime: true,
+            city: true,
+            country: true,
+            logo: true,
           },
         },
       },
