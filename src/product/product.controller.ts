@@ -35,13 +35,35 @@ export class ProductController {
   @ApiQuery({ name: 'categoryId', required: false })
   @ApiQuery({ name: 'sellerId', required: false })
   @ApiQuery({ name: 'q', required: false })
+  @ApiQuery({ name: 'minPrice', required: false })
+  @ApiQuery({ name: 'maxPrice', required: false })
+  @ApiQuery({ name: 'minMoq', required: false })
+  @ApiQuery({ name: 'maxMoq', required: false })
+  @ApiQuery({ name: 'city', required: false })
+  @ApiQuery({ name: 'verified', required: false })
   @Get()
   list(
     @Query('categoryId') categoryId?: string,
     @Query('sellerId') sellerId?: string,
     @Query('q') q?: string,
+    @Query('minPrice') minPrice?: string,
+    @Query('maxPrice') maxPrice?: string,
+    @Query('minMoq') minMoq?: string,
+    @Query('maxMoq') maxMoq?: string,
+    @Query('city') city?: string,
+    @Query('verified') verified?: string,
   ) {
-    return this.productService.list({ categoryId, sellerId, q });
+    return this.productService.list({
+      categoryId,
+      sellerId,
+      q,
+      minPrice,
+      maxPrice,
+      minMoq,
+      maxMoq,
+      city,
+      verified,
+    });
   }
 
   @Get('category/:categoryId')
