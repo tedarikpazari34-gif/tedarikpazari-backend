@@ -198,6 +198,7 @@ model User {
 
   company       Company        @relation(fields: [companyId], references: [id])
   notifications Notification[]
+  favorites     Favorite[]
 }
 
 model Category {
@@ -241,12 +242,27 @@ model Product {
   seller   Company   @relation(fields: [sellerId], references: [id])
   category Category? @relation(fields: [categoryId], references: [id])
 
-  images ProductImage[]
-  rfqs   RFQ[]
+  images    ProductImage[]
+  rfqs      RFQ[]
+  favorites Favorite[]
 
   @@index([sellerId])
   @@index([categoryId])
   @@index([isActive, isApproved])
+}
+
+model Favorite {
+  id        String   @id @default(cuid())
+  userId    String
+  productId String
+  createdAt DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, productId])
+  @@index([userId])
+  @@index([productId])
 }
 
 model ProductImage {
