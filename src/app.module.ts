@@ -15,6 +15,7 @@ import { PayoutModule } from './payout/payout.module';
 import { DisputeModule } from './dispute/dispute.module';
 
 import { WalletModule } from './wallet/wallet.module';
+import { FavoriteModule } from './favorite/favorite.module';
 import { PaymentsModule } from './payments/payments.module';
 
 import { CategoryModule } from './category/category.module';
@@ -43,6 +44,7 @@ import { ChatModule } from './chat/chat.module';
 
     PaymentsModule,
     WalletModule,
+    FavoriteModule,
     PayoutModule,
 
     AdminModule,
