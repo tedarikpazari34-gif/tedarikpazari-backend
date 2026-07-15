@@ -5,6 +5,7 @@ import {
   UploadedFile,
   UploadedFiles,
   BadRequestException,
+  UseGuards,
 } from '@nestjs/common';
 import {
   FileInterceptor,
@@ -13,6 +14,7 @@ import {
 import { ApiBody, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 const storage = diskStorage({
   destination: './uploads',
@@ -63,6 +65,7 @@ const disputeFileFilter = (_req: any, file: any, cb: any) => {
   }
 };
 @ApiTags('Upload')
+@UseGuards(JwtAuthGuard)
 @Controller('upload')
 export class UploadController {
   @Post()

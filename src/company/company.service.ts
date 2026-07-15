@@ -1,5 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
+import { UpdateCompanyProfileDto } from './dto/update-company-profile.dto';
 
 @Injectable()
 export class CompanyService {
@@ -19,6 +24,114 @@ export class CompanyService {
       data: {
         verified: true,
         status: 'APPROVED',
+      },
+    });
+  }
+
+  async getMine(user: any) {
+    if (!user?.companyId) {
+      throw new BadRequestException('Firma bilgisi bulunamadı');
+    }
+
+    const company = await this.prisma.company.findUnique({
+      where: {
+        id: user.companyId,
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        city: true,
+        country: true,
+        description: true,
+        website: true,
+        logo: true,
+        banner: true,
+        verified: true,
+        status: true,
+        role: true,
+        createdAt: true,
+      },
+    });
+
+    if (!company) {
+      throw new NotFoundException('Şirket bulunamadı');
+    }
+
+    return company;
+  }
+
+  async updateMine(user: any, body: UpdateCompanyProfileDto) {
+    if (!user?.companyId) {
+      throw new BadRequestException('Firma bilgisi bulunamadı');
+    }
+
+    const company = await this.prisma.company.findUnique({
+      where: {
+        id: user.companyId,
+      },
+    });
+
+    if (!company) {
+      throw new NotFoundException('Şirket bulunamadı');
+    }
+
+    const cleanWebsite = body.website?.trim();
+
+    if (
+      cleanWebsite &&
+      !/^https?:\/\/.+/i.test(cleanWebsite) &&
+      !/^[a-z0-9.-]+\.[a-z]{2,}(\/.*)?$/i.test(cleanWebsite)
+    ) {
+      throw new BadRequestException('Geçerli bir web sitesi girin');
+    }
+
+    return this.prisma.company.update({
+      where: {
+        id: user.companyId,
+      },
+      data: {
+        ...(body.name !== undefined
+          ? { name: body.name.trim() }
+          : {}),
+        ...(body.description !== undefined
+          ? { description: body.description.trim() || null }
+          : {}),
+        ...(body.phone !== undefined
+          ? { phone: body.phone.trim() || null }
+          : {}),
+        ...(body.website !== undefined
+          ? { website: cleanWebsite || null }
+          : {}),
+        ...(body.city !== undefined
+          ? { city: body.city.trim() || null }
+          : {}),
+        ...(body.country !== undefined
+          ? { country: body.country.trim() || null }
+          : {}),
+        ...(body.logo !== undefined
+          ? { logo: body.logo.trim() || null }
+          : {}),
+        ...(body.banner !== undefined
+          ? { banner: body.banner.trim() || null }
+          : {}),
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        city: true,
+        country: true,
+        description: true,
+        website: true,
+        logo: true,
+        banner: true,
+        verified: true,
+        status: true,
+        role: true,
+        createdAt: true,
       },
     });
   }
