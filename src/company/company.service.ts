@@ -28,6 +28,17 @@ export class CompanyService {
       where: { id },
       include: {
         products: {
+          where: {
+            isActive: true,
+            isApproved: true,
+          },
+          include: {
+            images: {
+              orderBy: {
+                sortOrder: 'asc',
+              },
+            },
+          },
           orderBy: {
             createdAt: 'desc',
           },
