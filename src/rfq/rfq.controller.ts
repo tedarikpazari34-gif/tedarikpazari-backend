@@ -3,6 +3,8 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
+  Param,
   Req,
   UseGuards,
   ForbiddenException,
@@ -32,6 +34,13 @@ export class RfqController {
     }
 
     return this.rfqService.create(req.user, body);
+  }
+
+  @UseGuards(JwtAuthGuard, CompanyStatusGuard)
+  @Patch(':id/close')
+  @ApiOperation({ summary: 'Close my RFQ (BUYER)' })
+  close(@Req() req: any, @Param('id') id: string) {
+    return this.rfqService.close(req.user, id);
   }
 
   @UseGuards(JwtAuthGuard, CompanyStatusGuard)

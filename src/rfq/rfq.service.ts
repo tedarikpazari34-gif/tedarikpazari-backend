@@ -85,6 +85,48 @@ export class RfqService {
     });
   }
 
+  // BUYER → kendi RFQ'sunu kapatır
+  async close(user: any, id: string) {
+    if (!user || user.role !== 'BUYER') {
+      throw new ForbiddenException('Sadece BUYER RFQ kapatabilir');
+    }
+
+    const rfq = await this.prisma.rFQ.findFirst({
+      where: {
+        id,
+        buyerId: user.companyId,
+      },
+      include: {
+        order: true,
+      },
+    });
+
+    if (!rfq) {
+      throw new NotFoundException('RFQ bulunamadı');
+    }
+
+    if (rfq.status === 'CLOSED') {
+      return rfq;
+    }
+
+    if (rfq.order) {
+      throw new BadRequestException(
+        'Siparişe dönüşmüş RFQ ayrıca kapatılamaz',
+      );
+    }
+
+    return this.prisma.rFQ.update({
+      where: { id },
+      data: {
+        status: 'CLOSED',
+      },
+      include: {
+        product: true,
+        quotes: true,
+      },
+    });
+  }
+
   // SELLER → tüm açık RFQ'lar
   async listOpen() {
     return this.prisma.rFQ.findMany({
