@@ -315,6 +315,26 @@ export class CompanyService {
       throw new NotFoundException('Şirket bulunamadı');
     }
 
-    return company;
+    const profileCompletion =
+      [
+        company.logo,
+        company.banner,
+        company.description,
+        company.products.length > 0,
+        company.verified,
+      ].filter(Boolean).length * 20;
+
+    return {
+      ...company,
+      stats: {
+        productCount: company.products.length,
+        completedDeals: company.completedDeals ?? 0,
+        rating: company.rating ?? 0,
+        reviewCount: company.reviewCount ?? 0,
+        memberSince: company.createdAt,
+        responseTime: company.responseTime || null,
+        profileCompletion,
+      },
+    };
   }
 }
