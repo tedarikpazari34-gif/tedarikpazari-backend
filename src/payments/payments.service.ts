@@ -213,51 +213,60 @@ export class PaymentsService {
     token: string,
     result: any,
   ) {
-    const order = await this.prisma.order.findUnique({ where: { id: orderId } });
-    if (!order) throw new NotFoundException('Order not found');
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+    });
 
-    // ✅ idempotency
-    if (order.status !== OrderStatus.PENDING_PAYMENT) {
-      // attempt'i yine de güncelleyelim
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    const paymentStatus = String(result.paymentStatus || '').toUpperCase();
+
+    if (paymentStatus && paymentStatus !== 'SUCCESS') {
       await this.prisma.paymentAttempt.updateMany({
-        where: { checkoutToken: token },
-        data: { status: PaymentStatus.SUCCESS, rawResponse: result },
-      });
-
-      return { message: 'Order zaten işlenmiş', orderId: order.id, status: order.status };
-    }
-
-    const escrowAmount = new Prisma.Decimal(order.escrowAmount);
-    if (escrowAmount.lte(0)) {
-      throw new BadRequestException('Escrow amount 0 olamaz');
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      // wallet ensure
-      await this.ensureWallet(tx, order.buyerId);
-      await this.ensureWallet(tx, order.sellerId);
-
-      // ✅ buyer locked += escrow
-      await tx.companyWallet.update({
-        where: { companyId: order.buyerId },
-        data: { locked: { increment: escrowAmount } },
-      });
-
-      // ✅ Order -> PAID
-      const updatedOrder = await tx.order.update({
-        where: { id: order.id },
+        where: {
+          orderId: order.id,
+          checkoutToken: token,
+        },
         data: {
-          status: OrderStatus.PAID,
-          iyzicoConversationId: result.conversationId ?? null,
-          iyzicoPaymentId: result.paymentId ?? null,
-          iyzicoPaidAt: new Date(),
-          iyzicoRawResult: result,
+          status: PaymentStatus.FAILED,
+          rawResponse: result,
         },
       });
 
-      // ✅ PaymentAttempt SUCCESS
-      await tx.paymentAttempt.updateMany({
-        where: { orderId: order.id, checkoutToken: token },
+      throw new BadRequestException('IyziCo ödeme onayı başarısız');
+    }
+
+    const receivedAmount = new Prisma.Decimal(
+      result.paidPrice ?? result.price ?? 0,
+    );
+
+    const expectedAmount = new Prisma.Decimal(order.totalAmount);
+
+    if (!receivedAmount.equals(expectedAmount)) {
+      await this.prisma.paymentAttempt.updateMany({
+        where: {
+          orderId: order.id,
+          checkoutToken: token,
+        },
+        data: {
+          status: PaymentStatus.FAILED,
+          rawResponse: result,
+        },
+      });
+
+      throw new BadRequestException(
+        'Ödeme tutarı sipariş tutarıyla eşleşmiyor',
+      );
+    }
+
+    if (order.status !== OrderStatus.PENDING_PAYMENT) {
+      await this.prisma.paymentAttempt.updateMany({
+        where: {
+          orderId: order.id,
+          checkoutToken: token,
+        },
         data: {
           status: PaymentStatus.SUCCESS,
           iyzicoPaymentId: result.paymentId ?? null,
@@ -265,7 +274,105 @@ export class PaymentsService {
         },
       });
 
-      // ✅ Ledger entries
+      return {
+        message: 'Order zaten işlenmiş',
+        orderId: order.id,
+        status: order.status,
+      };
+    }
+
+    const escrowAmount = new Prisma.Decimal(order.escrowAmount);
+
+    if (escrowAmount.lte(0)) {
+      throw new BadRequestException('Escrow amount 0 olamaz');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.order.updateMany({
+        where: {
+          id: order.id,
+          status: OrderStatus.PENDING_PAYMENT,
+        },
+        data: {
+          status: OrderStatus.PAID,
+          iyzicoConversationId: result.conversationId ?? null,
+          iyzicoCheckoutToken: token,
+          iyzicoPaymentId: result.paymentId ?? null,
+          iyzicoPaidAt: new Date(),
+          iyzicoRawResult: result,
+        },
+      });
+
+      if (claimed.count === 0) {
+        await tx.paymentAttempt.updateMany({
+          where: {
+            orderId: order.id,
+            checkoutToken: token,
+          },
+          data: {
+            status: PaymentStatus.SUCCESS,
+            iyzicoPaymentId: result.paymentId ?? null,
+            rawResponse: result,
+          },
+        });
+
+        const currentOrder = await tx.order.findUnique({
+          where: { id: order.id },
+        });
+
+        return {
+          message: 'Order zaten işlenmiş',
+          orderId: order.id,
+          status: currentOrder?.status,
+        };
+      }
+
+      await this.ensureWallet(tx, order.buyerId);
+      await this.ensureWallet(tx, order.sellerId);
+
+      await tx.companyWallet.update({
+        where: {
+          companyId: order.buyerId,
+        },
+        data: {
+          locked: {
+            increment: escrowAmount,
+          },
+        },
+      });
+
+      await tx.paymentAttempt.updateMany({
+        where: {
+          orderId: order.id,
+          checkoutToken: token,
+        },
+        data: {
+          status: PaymentStatus.SUCCESS,
+          iyzicoPaymentId: result.paymentId ?? null,
+          rawResponse: result,
+        },
+      });
+
+      const paymentTransactionId =
+        result.paymentId || `iyzico-token-${token}`;
+
+      await tx.paymentTransaction.upsert({
+        where: {
+          paymentTransactionId,
+        },
+        create: {
+          orderId: order.id,
+          sellerId: order.sellerId,
+          paymentTransactionId,
+          amount: expectedAmount,
+          status: 'SUCCESS',
+        },
+        update: {
+          status: 'SUCCESS',
+          amount: expectedAmount,
+        },
+      });
+
       await tx.ledgerEntry.create({
         data: {
           orderId: order.id,
@@ -273,7 +380,10 @@ export class PaymentsService {
           amount: escrowAmount,
           currency: 'TRY',
           note: 'IyziCo payment deposited into escrow',
-          meta: { token },
+          meta: {
+            token,
+            paymentId: result.paymentId ?? null,
+          },
         },
       });
 
@@ -284,7 +394,16 @@ export class PaymentsService {
           amount: order.commissionAmount,
           currency: 'TRY',
           note: 'Platform commission reserved',
-          meta: { token },
+          meta: {
+            token,
+            paymentId: result.paymentId ?? null,
+          },
+        },
+      });
+
+      const updatedOrder = await tx.order.findUnique({
+        where: {
+          id: order.id,
         },
       });
 
