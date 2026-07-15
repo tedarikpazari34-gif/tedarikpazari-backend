@@ -269,7 +269,22 @@ export class CompanyService {
   async getPublicSellerProfile(id: string) {
     const company = await this.prisma.company.findUnique({
       where: { id },
-      include: {
+      select: {
+        id: true,
+        name: true,
+        verified: true,
+        status: true,
+        logo: true,
+        banner: true,
+        description: true,
+        city: true,
+        country: true,
+        responseTime: true,
+        completedDeals: true,
+        rating: true,
+        reviewCount: true,
+        createdAt: true,
+
         products: {
           where: {
             isActive: true,
@@ -286,6 +301,7 @@ export class CompanyService {
             createdAt: 'desc',
           },
         },
+
         sellerReviews: {
           orderBy: {
             createdAt: 'desc',
