@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { ChatThreadType } from '@prisma/client';
 
 
 @Injectable()
@@ -252,29 +253,29 @@ const shippingOrder = await tx.shippingOrder.create({
   },
 });
 
-// Alıcı ile seçilen lojistik firması arasında özel sohbet oluştur.
-let chatThread = await tx.chatThread.findFirst({
+// Alıcı, satıcı ve seçilen lojistik firması için özel nakliye sohbeti oluştur.
+let chatThread = await tx.chatThread.findUnique({
   where: {
-    orderId: quote.rfq.orderId,
-    buyerId: quote.rfq.buyerId,
-    sellerId: quote.companyId,
+    shippingOrderId: shippingOrder.id,
   },
 });
 
 if (!chatThread) {
   chatThread = await tx.chatThread.create({
     data: {
-      type: 'ORDER',
+      type: ChatThreadType.SHIPPING,
       orderId: quote.rfq.orderId,
+      shippingOrderId: shippingOrder.id,
       buyerId: quote.rfq.buyerId,
-      sellerId: quote.companyId,
+      sellerId: quote.rfq.order.sellerId,
+      logisticsId: quote.companyId,
     },
   });
 }
 
 return {
   message:
-    'Nakliye firması seçildi, taşıma siparişi ve lojistik sohbeti oluşturuldu',
+    'Nakliye firması seçildi, taşıma siparişi ve üç taraflı lojistik sohbeti oluşturuldu',
   shippingOrder,
   chatThread,
 };

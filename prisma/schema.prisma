@@ -101,6 +101,7 @@ enum NotificationType {
 enum ChatThreadType {
   RFQ
   ORDER
+  SHIPPING
 }
 
 enum PayoutRequestStatus {
@@ -158,8 +159,9 @@ model Company {
   buyerReviews  Review[] @relation("BuyerReviews")
   sellerReviews Review[] @relation("SellerReviews")
 
-  buyerChatThreads  ChatThread[] @relation("BuyerChatThreads")
-  sellerChatThreads ChatThread[] @relation("SellerChatThreads")
+  buyerChatThreads     ChatThread[] @relation("BuyerChatThreads")
+  sellerChatThreads    ChatThread[] @relation("SellerChatThreads")
+  logisticsChatThreads ChatThread[] @relation("LogisticsChatThreads")
 
   wallet              CompanyWallet?
   paymentTransactions PaymentTransaction[]
@@ -577,6 +579,8 @@ model ShippingOrder {
   seller    Company @relation("ShippingOrderSeller", fields: [sellerId], references: [id])
   logistics Company @relation("ShippingOrderLogistics", fields: [logisticsId], references: [id])
 
+  chatThread ChatThread?
+
   @@index([buyerId])
   @@index([sellerId])
   @@index([logisticsId])
@@ -636,26 +640,32 @@ model Review {
 }
 
 model ChatThread {
-  id        String         @id @default(cuid())
-  type      ChatThreadType
-  rfqId     String?
-  orderId   String?
-  buyerId   String
-  sellerId  String
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
+  id              String         @id @default(cuid())
+  type            ChatThreadType
+  rfqId           String?
+  orderId         String?
+  shippingOrderId String?        @unique
+  buyerId         String
+  sellerId        String
+  logisticsId     String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
-  buyer    Company       @relation("BuyerChatThreads", fields: [buyerId], references: [id])
-  seller   Company       @relation("SellerChatThreads", fields: [sellerId], references: [id])
-  rfq      RFQ?          @relation(fields: [rfqId], references: [id])
-  order    Order?        @relation(fields: [orderId], references: [id])
-  messages ChatMessage[]
+  buyer         Company        @relation("BuyerChatThreads", fields: [buyerId], references: [id])
+  seller        Company        @relation("SellerChatThreads", fields: [sellerId], references: [id])
+  logistics     Company?       @relation("LogisticsChatThreads", fields: [logisticsId], references: [id])
+  rfq           RFQ?           @relation(fields: [rfqId], references: [id])
+  order         Order?         @relation(fields: [orderId], references: [id])
+  shippingOrder ShippingOrder? @relation(fields: [shippingOrderId], references: [id])
+  messages      ChatMessage[]
 
   @@unique([rfqId, buyerId, sellerId])
   @@index([buyerId])
   @@index([sellerId])
+  @@index([logisticsId])
   @@index([rfqId])
   @@index([orderId])
+  @@index([shippingOrderId])
 }
 
 model ChatMessage {

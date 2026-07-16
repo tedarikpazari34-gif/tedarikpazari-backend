@@ -37,6 +37,8 @@ export class ChatService {
       include: {
         buyer: true,
         seller: true,
+        logistics: true,
+        shippingOrder: true,
       },
     });
 
@@ -47,8 +49,9 @@ export class ChatService {
     const isAdmin = user.role === Role.ADMIN;
     const isBuyer = thread.buyerId === user.companyId;
     const isSeller = thread.sellerId === user.companyId;
+    const isLogistics = thread.logisticsId === user.companyId;
 
-    if (!isAdmin && !isBuyer && !isSeller) {
+    if (!isAdmin && !isBuyer && !isSeller && !isLogistics) {
       throw new ForbiddenException('Bu chate erişemezsiniz');
     }
 
@@ -87,6 +90,8 @@ export class ChatService {
       include: {
         buyer: true,
         seller: true,
+        logistics: true,
+        shippingOrder: true,
         rfq: {
           include: {
             product: true,
@@ -193,7 +198,11 @@ export class ChatService {
 
     return this.prisma.chatThread.findMany({
       where: {
-        OR: [{ buyerId: user.companyId }, { sellerId: user.companyId }],
+        OR: [
+          { buyerId: user.companyId },
+          { sellerId: user.companyId },
+          { logisticsId: user.companyId },
+        ],
       },
       orderBy: { updatedAt: 'desc' },
       include: {
@@ -296,6 +305,7 @@ export class ChatService {
         OR: [
           { buyerId: user.companyId },
           { sellerId: user.companyId },
+          { logisticsId: user.companyId },
         ],
       },
     },
