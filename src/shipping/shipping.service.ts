@@ -252,9 +252,31 @@ const shippingOrder = await tx.shippingOrder.create({
   },
 });
 
+// Alıcı ile seçilen lojistik firması arasında özel sohbet oluştur.
+let chatThread = await tx.chatThread.findFirst({
+  where: {
+    orderId: quote.rfq.orderId,
+    buyerId: quote.rfq.buyerId,
+    sellerId: quote.companyId,
+  },
+});
+
+if (!chatThread) {
+  chatThread = await tx.chatThread.create({
+    data: {
+      type: 'ORDER',
+      orderId: quote.rfq.orderId,
+      buyerId: quote.rfq.buyerId,
+      sellerId: quote.companyId,
+    },
+  });
+}
+
 return {
-  message: 'Nakliye firması seçildi ve taşıma siparişi oluşturuldu',
+  message:
+    'Nakliye firması seçildi, taşıma siparişi ve lojistik sohbeti oluşturuldu',
   shippingOrder,
+  chatThread,
 };
     });
   }
