@@ -5,7 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
-import { Role } from '@prisma/client';
+import { CompanyStatus, Role } from '@prisma/client';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 
@@ -259,6 +259,24 @@ export class ProductService {
       throw new ForbiddenException('Sadece SELLER ürün ekleyebilir');
     }
 
+    const sellerCompany = await this.prisma.company.findUnique({
+      where: { id: user.companyId },
+      select: {
+        id: true,
+        status: true,
+      },
+    });
+
+    if (!sellerCompany) {
+      throw new NotFoundException('Satıcı firması bulunamadı');
+    }
+
+    if (sellerCompany.status !== CompanyStatus.APPROVED) {
+      throw new ForbiddenException(
+        'Yalnızca onaylanmış satıcı firmalar ürün yayınlayabilir',
+      );
+    }
+
     return this.prisma.product.create({
       data: {
         sellerId: user.companyId,
@@ -274,7 +292,7 @@ export class ProductService {
         vatRate: body.vatRate || null,
         rfqEnabled: body.rfqEnabled ?? true,
         isActive: true,
-        isApproved: false,
+        isApproved: true,
       },
       include: {
         category: true,
