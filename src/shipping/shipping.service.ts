@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -56,14 +57,146 @@ if (existing) {
   );
 }
 
+    const fromCity = String(body.fromCity || '').trim();
+    const fromDistrict = String(body.fromDistrict || '').trim();
+    const fromOpenAddress = String(body.fromOpenAddress || '').trim();
+
+    const toCity = String(body.toCity || '').trim();
+    const toDistrict = String(body.toDistrict || '').trim();
+    const toOpenAddress = String(body.toOpenAddress || '').trim();
+
+    if (!fromCity || !toCity) {
+      throw new BadRequestException(
+        'Çıkış ve varış şehirleri zorunludur',
+      );
+    }
+
+    if (!fromDistrict || !toDistrict) {
+      throw new BadRequestException(
+        'Çıkış ve varış ilçeleri zorunludur',
+      );
+    }
+
+    if (!fromOpenAddress || !toOpenAddress) {
+      throw new BadRequestException(
+        'Yükleme ve teslimat açık adresleri zorunludur',
+      );
+    }
+
+    if (fromCity === toCity && fromDistrict === toDistrict) {
+      throw new BadRequestException(
+        'Çıkış ve varış noktaları aynı olamaz',
+      );
+    }
+
+    const palletCount =
+      body.palletCount === null ||
+      body.palletCount === undefined ||
+      body.palletCount === ''
+        ? null
+        : Number(body.palletCount);
+
+    const packageCount =
+      body.packageCount === null ||
+      body.packageCount === undefined ||
+      body.packageCount === ''
+        ? null
+        : Number(body.packageCount);
+
+    if (palletCount !== null && (!Number.isInteger(palletCount) || palletCount < 0)) {
+      throw new BadRequestException('Palet sayısı geçersiz');
+    }
+
+    if (packageCount !== null && (!Number.isInteger(packageCount) || packageCount < 0)) {
+      throw new BadRequestException('Koli sayısı geçersiz');
+    }
+
+    const loadingDate = body.loadingDate
+      ? new Date(body.loadingDate)
+      : null;
+
+    const requestedDeliveryDate = body.requestedDeliveryDate
+      ? new Date(body.requestedDeliveryDate)
+      : null;
+
+    if (loadingDate && Number.isNaN(loadingDate.getTime())) {
+      throw new BadRequestException('Yükleme tarihi geçersiz');
+    }
+
+    if (
+      requestedDeliveryDate &&
+      Number.isNaN(requestedDeliveryDate.getTime())
+    ) {
+      throw new BadRequestException(
+        'İstenen teslim tarihi geçersiz',
+      );
+    }
+
+    if (
+      loadingDate &&
+      requestedDeliveryDate &&
+      requestedDeliveryDate < loadingDate
+    ) {
+      throw new BadRequestException(
+        'Teslim tarihi yükleme tarihinden önce olamaz',
+      );
+    }
+
+    const fromAddress = [
+      fromCity,
+      fromDistrict,
+      fromOpenAddress,
+    ]
+      .filter(Boolean)
+      .join(' / ');
+
+    const toAddress = [
+      toCity,
+      toDistrict,
+      toOpenAddress,
+    ]
+      .filter(Boolean)
+      .join(' / ');
+
     return this.prisma.shippingRFQ.create({
       data: {
         orderId: body.orderId,
         buyerId: user.companyId,
-        fromAddress: body.fromAddress || 'İstanbul',
-        toAddress: body.toAddress || 'Ankara',
-        weight: body.weight ?? null,
-        volume: body.volume ?? null,
+
+        fromAddress,
+        toAddress,
+
+        fromCity,
+        fromDistrict,
+        fromOpenAddress,
+
+        toCity,
+        toDistrict,
+        toOpenAddress,
+
+        palletCount,
+        packageCount,
+
+        weight:
+          body.weight === null ||
+          body.weight === undefined ||
+          body.weight === ''
+            ? null
+            : Number(body.weight),
+
+        volume:
+          body.volume === null ||
+          body.volume === undefined ||
+          body.volume === ''
+            ? null
+            : Number(body.volume),
+
+        vehicleType:
+          String(body.vehicleType || '').trim() || null,
+
+        loadingDate,
+        requestedDeliveryDate,
+
         note: body.note ?? null,
         status: 'OPEN',
       },

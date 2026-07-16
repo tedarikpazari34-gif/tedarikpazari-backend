@@ -516,16 +516,35 @@ model AuditLog {
 }
 
 model ShippingRFQ {
-  id          String   @id @default(cuid())
-  orderId     String
-  buyerId     String
+  id      String @id @default(cuid())
+  orderId String
+  buyerId String
+
+  // Eski kayıtlarla uyumluluk için tam rota metni
   fromAddress String
   toAddress   String
-  weight      Float?
-  volume      Float?
-  note        String?
-  status      String   @default("OPEN")
-  createdAt   DateTime @default(now())
+
+  fromCity        String?
+  fromDistrict    String?
+  fromOpenAddress String?
+
+  toCity        String?
+  toDistrict    String?
+  toOpenAddress String?
+
+  palletCount  Int?
+  packageCount Int?
+
+  weight Float?
+  volume Float?
+
+  vehicleType           String?
+  loadingDate           DateTime?
+  requestedDeliveryDate DateTime?
+
+  note      String?
+  status    String   @default("OPEN")
+  createdAt DateTime @default(now())
 
   order         Order           @relation(fields: [orderId], references: [id])
   buyer         Company         @relation(fields: [buyerId], references: [id])
