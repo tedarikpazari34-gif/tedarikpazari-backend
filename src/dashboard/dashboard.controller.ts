@@ -1,19 +1,30 @@
 import { Controller, Get, Req, UseGuards } from '@nestjs/common';
-import { DashboardService } from './dashboard.service';
+
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { DashboardService } from './dashboard.service';
 
 @Controller('dashboard')
+@UseGuards(JwtAuthGuard)
 export class DashboardController {
-  constructor(private dashboardService: DashboardService) {}
+  constructor(private readonly dashboardService: DashboardService) {}
 
-  @UseGuards(JwtAuthGuard)
-  @Get('seller')
-  async seller(@Req() req: any) {
-    return this.dashboardService.sellerDashboard(req.user.companyId);
+  @Get('buyer')
+  buyer(@Req() req: any) {
+    return this.dashboardService.buyerDashboard(req.user);
   }
-  @UseGuards(JwtAuthGuard)
-@Get('admin')
-async admin() {
-  return this.dashboardService.adminDashboard();
-}
+
+  @Get('seller')
+  seller(@Req() req: any) {
+    return this.dashboardService.sellerDashboard(req.user);
+  }
+
+  @Get('logistics')
+  logistics(@Req() req: any) {
+    return this.dashboardService.logisticsDashboard(req.user);
+  }
+
+  @Get('admin')
+  admin(@Req() req: any) {
+    return this.dashboardService.adminDashboard(req.user);
+  }
 }
