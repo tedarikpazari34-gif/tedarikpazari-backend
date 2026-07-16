@@ -197,6 +197,22 @@ if (existing) {
         loadingDate,
         requestedDeliveryDate,
 
+        deliveryExpectation:
+          String(body.deliveryExpectation || '').trim() || null,
+
+        isFragile: Boolean(body.isFragile),
+        isDangerous: Boolean(body.isDangerous),
+        coldChain: Boolean(body.coldChain),
+        stackable:
+          body.stackable === undefined
+            ? true
+            : Boolean(body.stackable),
+        needForklift: Boolean(body.needForklift),
+        needCrane: Boolean(body.needCrane),
+
+        photoUrl:
+          String(body.photoUrl || '').trim() || null,
+
         note: body.note ?? null,
         status: 'OPEN',
       },
