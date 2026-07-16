@@ -337,6 +337,7 @@ export class DashboardService {
       completedOrders,
       pendingOrders,
       disputes,
+      totalRfqs,
       openRfqs,
       quotes,
       openShippingRfqs,
@@ -386,6 +387,8 @@ export class DashboardService {
       }),
 
       this.prisma.dispute.count(),
+
+      this.prisma.rFQ.count(),
 
       this.prisma.rFQ.count({
         where: { status: 'OPEN' },
@@ -442,6 +445,7 @@ export class DashboardService {
       pendingOrders,
 
       disputes,
+      totalRfqs,
       openRfqs,
       quotes,
 
