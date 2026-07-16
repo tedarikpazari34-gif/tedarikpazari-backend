@@ -541,7 +541,16 @@ model ShippingRFQ {
   vehicleType           String?
   loadingDate           DateTime?
   requestedDeliveryDate DateTime?
+  deliveryExpectation   String?
 
+  isFragile    Boolean @default(false)
+  isDangerous  Boolean @default(false)
+  coldChain    Boolean @default(false)
+  stackable    Boolean @default(true)
+  needForklift Boolean @default(false)
+  needCrane    Boolean @default(false)
+
+  photoUrl  String?
   note      String?
   status    String   @default("OPEN")
   createdAt DateTime @default(now())
