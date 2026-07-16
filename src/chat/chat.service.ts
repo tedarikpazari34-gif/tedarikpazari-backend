@@ -7,16 +7,16 @@ import {
 
 import { ChatThreadType, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { ChatGateway } from './chat.gateway'; 
+import { ChatGateway } from './chat.gateway';
 import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class ChatService {
   constructor(
-  private readonly prisma: PrismaService,
-  private readonly chatGateway: ChatGateway,
-  private readonly mailService: MailService,
-) {}
+    private readonly prisma: PrismaService,
+    private readonly chatGateway: ChatGateway,
+    private readonly mailService: MailService,
+  ) {}
 
   private hasForbiddenContactInfo(content: string) {
     const emailRegex = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
@@ -114,6 +114,8 @@ export class ChatService {
       include: {
         buyer: true,
         seller: true,
+        logistics: true,
+        shippingOrder: true,
         rfq: {
           include: {
             product: true,
@@ -182,6 +184,8 @@ export class ChatService {
         include: {
           buyer: true,
           seller: true,
+          logistics: true,
+          shippingOrder: true,
           rfq: {
             include: {
               product: true,
@@ -223,40 +227,40 @@ export class ChatService {
   }
 
   async getMessages(user: any, threadId: string) {
-  await this.canAccessThread(user, threadId);
+    await this.canAccessThread(user, threadId);
 
-  await this.prisma.chatMessage.updateMany({
-  where: {
-    threadId,
-    isRead: false,
-    NOT: {
-      senderId: user.id,
-    },
-  },
-  data: {
-    isRead: true,
-    readAt: new Date(),
-  },
-});
-
-  return this.prisma.chatMessage.findMany({
-    where: {
-      threadId,
-    },
-    orderBy: {
-      createdAt: 'asc',
-    },
-    include: {
-      sender: {
-        select: {
-          id: true,
-          role: true,
-          companyId: true,
+    await this.prisma.chatMessage.updateMany({
+      where: {
+        threadId,
+        isRead: false,
+        NOT: {
+          senderId: user.id,
         },
       },
-    },
-  });
-}
+      data: {
+        isRead: true,
+        readAt: new Date(),
+      },
+    });
+
+    return this.prisma.chatMessage.findMany({
+      where: {
+        threadId,
+      },
+      orderBy: {
+        createdAt: 'asc',
+      },
+      include: {
+        sender: {
+          select: {
+            id: true,
+            role: true,
+            companyId: true,
+          },
+        },
+      },
+    });
+  }
 
   async listFlaggedMessages(user: any) {
     if (user.role !== Role.ADMIN) {
@@ -295,22 +299,22 @@ export class ChatService {
     });
   }
   async getUnreadCount(user: any) {
-  return this.prisma.chatMessage.count({
-    where: {
-      isRead: false,
-      senderId: {
-        not: user.id,
+    return this.prisma.chatMessage.count({
+      where: {
+        isRead: false,
+        senderId: {
+          not: user.id,
+        },
+        thread: {
+          OR: [
+            { buyerId: user.companyId },
+            { sellerId: user.companyId },
+            { logisticsId: user.companyId },
+          ],
+        },
       },
-      thread: {
-        OR: [
-          { buyerId: user.companyId },
-          { sellerId: user.companyId },
-          { logisticsId: user.companyId },
-        ],
-      },
-    },
-  });
-}
+    });
+  }
   async sendMessage(user: any, threadId: string, content: string) {
     const thread = await this.canAccessThread(user, threadId);
 
@@ -366,88 +370,85 @@ export class ChatService {
       ),
     );
     await Promise.all(
-  receiverUsers
-    .filter((receiver) => receiver.email)
-    .map((receiver) =>
-      this.mailService.sendNewMessageEmail(
-        receiver.email,
-        cleanContent,
-      ),
-    ),
-);
+      receiverUsers
+        .filter((receiver) => receiver.email)
+        .map((receiver) =>
+          this.mailService.sendNewMessageEmail(receiver.email, cleanContent),
+        ),
+    );
 
     this.chatGateway.emitNewMessage(threadId, message);
     return message;
   }
   async sendFileMessage(
-  user: any,
-  threadId: string,
-  file: Express.Multer.File,
-) {
-  const thread = await this.canAccessThread(user, threadId);
+    user: any,
+    threadId: string,
+    file: Express.Multer.File,
+  ) {
+    const thread = await this.canAccessThread(user, threadId);
 
-  if (!file) {
-    throw new BadRequestException('Dosya bulunamadı');
-  }
+    if (!file) {
+      throw new BadRequestException('Dosya bulunamadı');
+    }
 
-  const allowedTypes = [
-    'image/jpeg',
-    'image/png',
-    'image/webp',
-    'application/pdf',
-  ];
+    const allowedTypes = [
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'application/pdf',
+    ];
 
-  if (!allowedTypes.includes(file.mimetype)) {
-    throw new BadRequestException(
-      'Sadece JPG, PNG, WEBP veya PDF dosyası gönderilebilir',
+    if (!allowedTypes.includes(file.mimetype)) {
+      throw new BadRequestException(
+        'Sadece JPG, PNG, WEBP veya PDF dosyası gönderilebilir',
+      );
+    }
+
+    const fileUrl = `/uploads/chat/${file.filename}`;
+
+    const message = await this.prisma.chatMessage.create({
+      data: {
+        threadId,
+        senderId: user.id,
+        content: file.originalname,
+        fileUrl,
+        fileName: file.originalname,
+        fileType: file.mimetype,
+      },
+    });
+
+    await this.prisma.chatThread.update({
+      where: { id: threadId },
+      data: {
+        updatedAt: new Date(),
+      },
+    });
+
+    const receiverCompanyId =
+      user.companyId === thread.buyerId ? thread.sellerId : thread.buyerId;
+
+    const receiverUsers = await this.prisma.user.findMany({
+      where: {
+        companyId: receiverCompanyId,
+      },
+    });
+
+    await Promise.all(
+      receiverUsers.map((receiver) =>
+        this.prisma.notification.create({
+          data: {
+            userId: receiver.id,
+            type: 'SYSTEM',
+            title: 'Yeni dosya gönderildi',
+            message: file.originalname,
+            link: '/chat',
+          },
+        }),
+      ),
     );
-  }
 
-  const fileUrl = `/uploads/chat/${file.filename}`;
+    this.chatGateway.emitNewMessage(threadId, message);
 
-  const message = await this.prisma.chatMessage.create({
-    data: {
-      threadId,
-      senderId: user.id,
-      content: file.originalname,
-      fileUrl,
-      fileName: file.originalname,
-      fileType: file.mimetype,
-    },
-  });
-
-  await this.prisma.chatThread.update({
-    where: { id: threadId },
-    data: {
-      updatedAt: new Date(),
-    },
-  });
-
-  const receiverCompanyId =
-    user.companyId === thread.buyerId ? thread.sellerId : thread.buyerId;
-
-  const receiverUsers = await this.prisma.user.findMany({
-    where: {
-      companyId: receiverCompanyId,
-    },
-  });
-
-  await Promise.all(
-    receiverUsers.map((receiver) =>
-      this.prisma.notification.create({
-        data: {
-          userId: receiver.id,
-          type: 'SYSTEM',
-          title: 'Yeni dosya gönderildi',
-          message: file.originalname,
-          link: '/chat',
-        },
-      }),
-    ),
-  );
-
-  this.chatGateway.emitNewMessage(threadId, message);
-
-  return message;
+    return message;
   }
 }
