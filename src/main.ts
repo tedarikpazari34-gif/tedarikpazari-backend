@@ -26,17 +26,15 @@ async function bootstrap() {
    * CORS
    */
   app.enableCors({
-  origin: [
-  'http://localhost:5173',
-  'https://tedarikpazari.com',
-  'https://www.tedarikpazari.com',
-  'https://xn--tedarikpazar-d5b.com',
-  'https://www.xn--tedarikpazar-d5b.com',
-  'https://tedarikci-frontend.onrender.com',
-],
+    origin: [
+      'http://localhost:5173',
+      'https://xn--tedarikpazar-d5b.com',
+      'https://www.xn--tedarikpazar-d5b.com',
+      'https://tedarikci-frontend.onrender.com',
+    ],
 
-  credentials: true,
-});
+    credentials: true,
+  });
 
   /**
    * GLOBAL VALIDATION
