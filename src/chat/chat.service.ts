@@ -369,13 +369,19 @@ export class ChatService {
         }),
       ),
     );
-    await Promise.all(
+    const emailResults = await Promise.allSettled(
       receiverUsers
         .filter((receiver) => receiver.email)
         .map((receiver) =>
           this.mailService.sendNewMessageEmail(receiver.email, cleanContent),
         ),
     );
+
+    emailResults.forEach((result) => {
+      if (result.status === 'rejected') {
+        console.error('CHAT EMAIL ERROR:', result.reason);
+      }
+    });
 
     this.chatGateway.emitNewMessage(threadId, message);
     return message;
