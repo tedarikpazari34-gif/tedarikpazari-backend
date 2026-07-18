@@ -10,6 +10,6 @@ import { MailModule } from '../mail/mail.module';
   imports: [PrismaModule, MailModule],
   controllers: [ChatController],
   providers: [ChatService, ChatGateway],
-  exports: [ChatService],
+  exports: [ChatService, ChatGateway],
 })
 export class ChatModule {}

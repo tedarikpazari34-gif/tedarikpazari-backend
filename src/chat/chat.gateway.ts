@@ -86,6 +86,14 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
     });
   }
 
+  getOnlineUserCount() {
+    return new Set(this.onlineUsers.values()).size;
+  }
+
+  isReady() {
+    return Boolean(this.server);
+  }
+
   emitNewMessage(threadId: string, message: any) {
     this.server.to(`thread:${threadId}`).emit('newMessage', message);
   }
