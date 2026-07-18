@@ -1,15 +1,19 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
-import { Prisma } from '@prisma/client';
+import { NotificationType, Prisma, Role } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import axios from 'axios';
+import { NotificationService } from '../notification/notification.service';
+import { ChatGateway } from '../chat/chat.gateway';
 
 @Injectable()
 export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
+    private readonly notificationService: NotificationService,
+    private readonly chatGateway: ChatGateway,
   ) {}
 
   private async verifyRecaptcha(token?: string) {
@@ -113,6 +117,32 @@ export class AuthService {
         company: true,
       },
     });
+
+    // Bildirim hatası kullanıcı kaydını bozmasın.
+    try {
+      const adminUsers = await this.prisma.user.findMany({
+        where: {
+          role: Role.ADMIN,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      for (const admin of adminUsers) {
+        const notification = await this.notificationService.createNotification({
+          userId: admin.id,
+          type: NotificationType.COMPANY,
+          title: 'Yeni firma başvurusu',
+          message: `${company.name} adlı firma onay bekliyor.`,
+          link: '/admin/companies',
+        });
+
+        this.chatGateway.emitNotificationToUser(admin.id, notification);
+      }
+    } catch (error) {
+      console.error('Admin firma bildirimi oluşturulamadı:', error);
+    }
 
     return {
       message: 'signup ok',

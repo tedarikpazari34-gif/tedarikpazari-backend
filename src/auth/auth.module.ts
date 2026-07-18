@@ -6,10 +6,14 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
 import { PrismaModule } from '../prisma/prisma.module';
+import { NotificationModule } from '../notification/notification.module';
+import { ChatModule } from '../chat/chat.module';
 
 @Module({
   imports: [
     PrismaModule,
+    NotificationModule,
+    ChatModule,
     PassportModule,
     JwtModule.register({
       secret:

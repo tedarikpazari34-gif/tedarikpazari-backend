@@ -26,6 +26,7 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
     if (userId) {
       this.onlineUsers.set(client.id, userId);
+      client.join(`user:${userId}`);
 
       this.server.emit('userOnline', {
         userId,
@@ -92,6 +93,12 @@ export class ChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   isReady() {
     return Boolean(this.server);
+  }
+
+  emitNotificationToUser(userId: string, notification: any) {
+    if (!this.server || !userId) return;
+
+    this.server.to(`user:${userId}`).emit('newNotification', notification);
   }
 
   emitNewMessage(threadId: string, message: any) {
