@@ -198,9 +198,26 @@ model User {
   chatMessages ChatMessage[]
   auditLogs    AuditLog[]
 
-  company       Company        @relation(fields: [companyId], references: [id])
-  notifications Notification[]
-  favorites     Favorite[]
+  company           Company            @relation(fields: [companyId], references: [id])
+  notifications     Notification[]
+  favorites         Favorite[]
+  pushSubscriptions PushSubscription[]
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  platform  String?
+  userAgent String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isActive])
 }
 
 model Category {

@@ -26,6 +26,7 @@ import { ShippingModule } from './shipping/shipping.module';
 import { NotificationModule } from './notification/notification.module';
 import { ReviewModule } from './review/review.module';
 import { ChatModule } from './chat/chat.module';
+import { PushModule } from './push/push.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { ChatModule } from './chat/chat.module';
     NotificationModule,
     ReviewModule,
     ChatModule,
+    PushModule,
   ],
   controllers: [AppController],
   providers: [],
