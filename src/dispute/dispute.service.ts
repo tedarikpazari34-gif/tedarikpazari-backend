@@ -105,13 +105,33 @@ export class DisputeService {
       await this.notificationService.createNotification({
         userId: targetUser.id,
         type: 'ORDER',
-        title: 'Dispute Açıldı',
+        title: 'Uyuşmazlık Açıldı',
         message: openedByBuyer
           ? 'Bir siparişiniz için alıcı uyuşmazlık başlattı.'
           : 'Bir siparişiniz için satıcı uyuşmazlık başlattı.',
         link: openedByBuyer ? '/seller/orders' : '/buyer/orders',
       });
     }
+
+    const adminUsers = await this.prisma.user.findMany({
+      where: {
+        role: Role.ADMIN,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    for (const admin of adminUsers) {
+      await this.notificationService.createNotification({
+        userId: admin.id,
+        type: 'SYSTEM',
+        title: 'Yeni Uyuşmazlık',
+        message: `Bir sipariş için yeni uyuşmazlık açıldı. Sebep: ${reason.trim()}`,
+        link: '/admin/disputes',
+      });
+    }
+
     return dispute;
   }
 

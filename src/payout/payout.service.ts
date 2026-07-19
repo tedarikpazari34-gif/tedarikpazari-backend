@@ -4,12 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  LedgerType,
-  PayoutRequestStatus,
-  Prisma,
-  Role,
-} from '@prisma/client';
+import { LedgerType, PayoutRequestStatus, Prisma, Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
 
@@ -187,7 +182,7 @@ export class PayoutService {
           processedAt: new Date(),
         },
       });
- 
+
       await tx.ledgerEntry.create({
         data: {
           type: LedgerType.PAYOUT_APPROVE,
@@ -223,67 +218,67 @@ export class PayoutService {
 
     return result;
   }
-  c
+
   async reject(user: any, payoutRequestId: string, note?: string) {
     if (user.role !== Role.ADMIN) {
       throw new ForbiddenException('Sadece ADMIN reject yapabilir');
     }
 
-   const payoutRequest = await this.prisma.payoutRequest.findUnique({
-  where: { id: payoutRequestId },
-});
+    const payoutRequest = await this.prisma.payoutRequest.findUnique({
+      where: { id: payoutRequestId },
+    });
 
-if (!payoutRequest) {
-  throw new NotFoundException('Payout request not found');
-}
+    if (!payoutRequest) {
+      throw new NotFoundException('Payout request not found');
+    }
 
-if (payoutRequest.status !== PayoutRequestStatus.PENDING) {
-  throw new BadRequestException('Bu talep zaten işlenmiş');
-}
+    if (payoutRequest.status !== PayoutRequestStatus.PENDING) {
+      throw new BadRequestException('Bu talep zaten işlenmiş');
+    }
 
-const finalNote = note?.trim() || 'Reddedildi';
+    const finalNote = note?.trim() || 'Reddedildi';
 
-const updated = await this.prisma.payoutRequest.update({
-  where: { id: payoutRequest.id },
-  data: {
-    status: PayoutRequestStatus.REJECTED,
-    processedAt: new Date(),
-    adminNote: finalNote,
-  },
-});
+    const updated = await this.prisma.payoutRequest.update({
+      where: { id: payoutRequest.id },
+      data: {
+        status: PayoutRequestStatus.REJECTED,
+        processedAt: new Date(),
+        adminNote: finalNote,
+      },
+    });
 
-await this.prisma.ledgerEntry.create({
-  data: {
-    type: LedgerType.PAYOUT_REJECT,
-    amount: payoutRequest.amount,
-    currency: 'TRY',
-    fromCompanyId: payoutRequest.companyId,
-    note: finalNote,
-    meta: {
-      payoutRequestId: payoutRequest.id,
-    },
-  },
-});
+    await this.prisma.ledgerEntry.create({
+      data: {
+        type: LedgerType.PAYOUT_REJECT,
+        amount: payoutRequest.amount,
+        currency: 'TRY',
+        fromCompanyId: payoutRequest.companyId,
+        note: finalNote,
+        meta: {
+          payoutRequestId: payoutRequest.id,
+        },
+      },
+    });
 
-const sellerUser = await this.prisma.user.findFirst({
-  where: {
-    companyId: payoutRequest.companyId,
-  },
-});
+    const sellerUser = await this.prisma.user.findFirst({
+      where: {
+        companyId: payoutRequest.companyId,
+      },
+    });
 
-if (sellerUser) {
-  await this.notificationService.createNotification({
-    userId: sellerUser.id,
-    type: 'PAYMENT',
-    title: 'Para Çekme Talebiniz Reddedildi',
-    message: `Para çekme talebiniz reddedildi. Sebep: ${finalNote}`,
-    link: '/wallet',
-  });
-}
+    if (sellerUser) {
+      await this.notificationService.createNotification({
+        userId: sellerUser.id,
+        type: 'PAYMENT',
+        title: 'Para Çekme Talebiniz Reddedildi',
+        message: `Para çekme talebiniz reddedildi. Sebep: ${finalNote}`,
+        link: '/wallet',
+      });
+    }
 
-return {
-  message: 'Para çekme talebi reddedildi',
-  payoutRequest: updated,
-};
+    return {
+      message: 'Para çekme talebi reddedildi',
+      payoutRequest: updated,
+    };
   }
 }

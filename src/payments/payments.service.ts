@@ -15,12 +15,14 @@ import {
   Role,
 } from '@prisma/client';
 import { IyzicoService } from './iyzico.service';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class PaymentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly iyzico: IyzicoService,
+    private readonly notificationService: NotificationService,
   ) {}
 
   // ✅ Wallet yoksa oluştur
@@ -196,9 +198,15 @@ export class PaymentsService {
         where: { checkoutToken: token.trim() },
       });
       if (!attempt) {
-        throw new BadRequestException('basketId yok ve token eşleşmesi bulunamadı');
+        throw new BadRequestException(
+          'basketId yok ve token eşleşmesi bulunamadı',
+        );
       }
-      return this.processSuccessfulPayment(attempt.orderId, token.trim(), result);
+      return this.processSuccessfulPayment(
+        attempt.orderId,
+        token.trim(),
+        result,
+      );
     }
 
     return this.processSuccessfulPayment(orderId, token.trim(), result);
@@ -287,7 +295,7 @@ export class PaymentsService {
       throw new BadRequestException('Escrow amount 0 olamaz');
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const processed = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.order.updateMany({
         where: {
           id: order.id,
@@ -324,6 +332,7 @@ export class PaymentsService {
           message: 'Order zaten işlenmiş',
           orderId: order.id,
           status: currentOrder?.status,
+          newlyPaid: false,
         };
       }
 
@@ -353,8 +362,7 @@ export class PaymentsService {
         },
       });
 
-      const paymentTransactionId =
-        result.paymentId || `iyzico-token-${token}`;
+      const paymentTransactionId = result.paymentId || `iyzico-token-${token}`;
 
       await tx.paymentTransaction.upsert({
         where: {
@@ -410,7 +418,54 @@ export class PaymentsService {
       return {
         message: 'Payment verified and order marked as PAID',
         order: updatedOrder,
+        newlyPaid: true,
       };
     });
+
+    if (processed.newlyPaid) {
+      const sellerUsers = await this.prisma.user.findMany({
+        where: {
+          companyId: order.sellerId,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      for (const seller of sellerUsers) {
+        await this.notificationService.createNotification({
+          userId: seller.id,
+          type: 'PAYMENT',
+          title: 'Ödeme Alındı',
+          message:
+            'Alıcı ödemeyi tamamladı. Siparişi hazırlamaya başlayabilirsiniz.',
+          link: '/seller/orders',
+        });
+      }
+
+      const adminUsers = await this.prisma.user.findMany({
+        where: {
+          role: Role.ADMIN,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      const paymentAmount = new Prisma.Decimal(order.totalAmount).toFixed(2);
+
+      for (const admin of adminUsers) {
+        await this.notificationService.createNotification({
+          userId: admin.id,
+          type: 'PAYMENT',
+          title: 'Yeni Ödeme Alındı',
+          message: `${paymentAmount} ₺ tutarındaki sipariş ödemesi başarıyla alındı.`,
+          link: '/admin/orders',
+        });
+      }
+    }
+
+    const { newlyPaid, ...response } = processed;
+    return response;
   }
 }

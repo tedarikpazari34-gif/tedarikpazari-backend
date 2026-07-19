@@ -5,10 +5,14 @@ import {
 } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { ChatGateway } from '../chat/chat.gateway';
 
 @Injectable()
 export class NotificationService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly chatGateway: ChatGateway,
+  ) {}
 
   async createNotification(data: {
     userId: string;
@@ -17,7 +21,7 @@ export class NotificationService {
     message: string;
     link?: string;
   }) {
-    return this.prisma.notification.create({
+    const notification = await this.prisma.notification.create({
       data: {
         userId: data.userId,
         type: data.type,
@@ -26,6 +30,10 @@ export class NotificationService {
         link: data.link,
       },
     });
+
+    this.chatGateway.emitNotificationToUser(data.userId, notification);
+
+    return notification;
   }
 
   async getMyNotifications(userId: string) {
@@ -50,21 +58,16 @@ export class NotificationService {
   }
 
   async markAsRead(id: string, userId: string) {
-    const notification =
-      await this.prisma.notification.findUnique({
-        where: { id },
-      });
+    const notification = await this.prisma.notification.findUnique({
+      where: { id },
+    });
 
     if (!notification) {
-      throw new NotFoundException(
-        'Bildirim bulunamadı',
-      );
+      throw new NotFoundException('Bildirim bulunamadı');
     }
 
     if (notification.userId !== userId) {
-      throw new ForbiddenException(
-        'Bu bildirime erişemezsiniz',
-      );
+      throw new ForbiddenException('Bu bildirime erişemezsiniz');
     }
 
     return this.prisma.notification.update({

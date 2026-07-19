@@ -326,6 +326,47 @@ export class ChatService {
     const isFlagged = this.hasForbiddenContactInfo(cleanContent);
 
     if (isFlagged) {
+      const flaggedMessage = await this.prisma.chatMessage.create({
+        data: {
+          threadId,
+          senderId: user.id,
+          content: cleanContent,
+          isFlagged: true,
+          isRead: true,
+          readAt: new Date(),
+        },
+      });
+
+      const adminUsers = await this.prisma.user.findMany({
+        where: {
+          role: Role.ADMIN,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      for (const admin of adminUsers) {
+        const notification = await this.prisma.notification.create({
+          data: {
+            userId: admin.id,
+            type: 'SYSTEM',
+            title: 'Yasak İletişim Bilgisi Tespit Edildi',
+            message:
+              'Bir kullanıcı sohbet üzerinden telefon, e-posta veya bağlantı paylaşmayı denedi.',
+            link: '/admin/control-center',
+          },
+        });
+
+        this.chatGateway.emitNotificationToUser(admin.id, notification);
+      }
+
+      console.warn('FLAGGED CHAT MESSAGE:', {
+        messageId: flaggedMessage.id,
+        threadId,
+        senderId: user.id,
+      });
+
       throw new BadRequestException(
         'Platform dışı iletişim bilgisi, telefon, e-posta veya link paylaşımı yasaktır.',
       );
