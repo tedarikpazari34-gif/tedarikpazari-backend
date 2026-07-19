@@ -1,73 +1,81 @@
 import {
+  BadRequestException,
   Controller,
   Post,
-  UseInterceptors,
   UploadedFile,
   UploadedFiles,
-  BadRequestException,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
 import {
   FileInterceptor,
   FilesInterceptor,
 } from '@nestjs/platform-express';
 import { ApiBody, ApiConsumes, ApiTags } from '@nestjs/swagger';
-import { diskStorage } from 'multer';
+import { memoryStorage } from 'multer';
 import { extname } from 'path';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { CloudinaryService } from '../cloudinary/cloudinary.service';
 
-const storage = diskStorage({
-  destination: './uploads',
-  filename: (_req, file, cb) => {
-    const uniqueName =
-      Date.now() + '-' + Math.round(Math.random() * 1e9);
-    cb(null, `${uniqueName}${extname(file.originalname)}`);
-  },
-});
+const storage = memoryStorage();
 
 const imageFileFilter = (_req: any, file: any, cb: any) => {
-  const allowedExt = /jpg|jpeg|png|webp/;
+  const allowedExt = /\.(jpg|jpeg|png|webp)$/i;
   const ext = extname(file.originalname).toLowerCase();
 
   const validExt = allowedExt.test(ext);
-  const validMime =
-    file.mimetype === 'image/jpeg' ||
-    file.mimetype === 'image/png' ||
-    file.mimetype === 'image/webp';
+  const validMime = [
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+  ].includes(file.mimetype);
 
   if (validExt && validMime) {
     cb(null, true);
-  } else {
-    cb(
-      new BadRequestException('Sadece jpg, jpeg, png, webp yüklenebilir'),
-      false,
-    );
+    return;
   }
+
+  cb(
+    new BadRequestException(
+      'Sadece jpg, jpeg, png ve webp yüklenebilir',
+    ),
+    false,
+  );
 };
+
 const disputeFileFilter = (_req: any, file: any, cb: any) => {
-  const allowedExt = /jpg|jpeg|png|webp|pdf/;
+  const allowedExt = /\.(jpg|jpeg|png|webp|pdf)$/i;
   const ext = extname(file.originalname).toLowerCase();
 
   const validExt = allowedExt.test(ext);
-  const validMime =
-    file.mimetype === 'image/jpeg' ||
-    file.mimetype === 'image/png' ||
-    file.mimetype === 'image/webp' ||
-    file.mimetype === 'application/pdf';
+  const validMime = [
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'application/pdf',
+  ].includes(file.mimetype);
 
   if (validExt && validMime) {
     cb(null, true);
-  } else {
-    cb(
-      new BadRequestException('Sadece jpg, jpeg, png, webp, pdf yüklenebilir'),
-      false,
-    );
+    return;
   }
+
+  cb(
+    new BadRequestException(
+      'Sadece jpg, jpeg, png, webp ve pdf yüklenebilir',
+    ),
+    false,
+  );
 };
+
 @ApiTags('Upload')
 @UseGuards(JwtAuthGuard)
 @Controller('upload')
 export class UploadController {
+  constructor(
+    private readonly cloudinaryService: CloudinaryService,
+  ) {}
+
   @Post()
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -91,51 +99,71 @@ export class UploadController {
       },
     }),
   )
-  uploadFile(@UploadedFile() file: any) {
+  async uploadFile(@UploadedFile() file: Express.Multer.File) {
     if (!file) {
       throw new BadRequestException('Dosya yüklenemedi');
     }
 
+    const result = await this.cloudinaryService.uploadBuffer(
+      file.buffer,
+      {
+        folder: 'tedarik-pazari-platform/products',
+        resource_type: 'image',
+      },
+    );
+
     return {
       message: 'Dosya yüklendi',
-      imageUrl: `/uploads/${file.filename}`,
+      imageUrl: result.secure_url,
     };
   }
+
   @Post('dispute')
-@ApiConsumes('multipart/form-data')
-@ApiBody({
-  schema: {
-    type: 'object',
-    properties: {
-      file: {
-        type: 'string',
-        format: 'binary',
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+        },
       },
+      required: ['file'],
     },
-    required: ['file'],
-  },
-})
-@UseInterceptors(
-  FileInterceptor('file', {
-    storage,
-    fileFilter: disputeFileFilter,
-    limits: {
-      fileSize: 10 * 1024 * 1024,
-    },
-  }),
-)
-uploadDisputeFile(@UploadedFile() file: any) {
-  if (!file) {
-    throw new BadRequestException('Dosya yüklenemedi');
+  })
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage,
+      fileFilter: disputeFileFilter,
+      limits: {
+        fileSize: 10 * 1024 * 1024,
+      },
+    }),
+  )
+  async uploadDisputeFile(
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException('Dosya yüklenemedi');
+    }
+
+    const result = await this.cloudinaryService.uploadBuffer(
+      file.buffer,
+      {
+        folder: 'tedarik-pazari-platform/disputes',
+        resource_type: 'auto',
+      },
+    );
+
+    return {
+      message: 'Uyuşmazlık dosyası yüklendi',
+      fileUrl: result.secure_url,
+      fileName: file.originalname,
+      fileType: file.mimetype,
+    };
   }
 
-  return {
-    message: 'Dispute dosyası yüklendi',
-    fileUrl: `/uploads/${file.filename}`,
-    fileName: file.originalname,
-    fileType: file.mimetype,
-  };
-}
   @Post('multiple')
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -162,15 +190,26 @@ uploadDisputeFile(@UploadedFile() file: any) {
       },
     }),
   )
-  uploadMultiple(@UploadedFiles() files: any[]) {
+  async uploadMultiple(
+    @UploadedFiles() files: Express.Multer.File[],
+  ) {
     if (!files || files.length === 0) {
       throw new BadRequestException('Dosyalar yüklenemedi');
     }
 
+    const uploadedFiles = await Promise.all(
+      files.map((file) =>
+        this.cloudinaryService.uploadBuffer(file.buffer, {
+          folder: 'tedarik-pazari-platform/products',
+          resource_type: 'image',
+        }),
+      ),
+    );
+
     return {
       message: 'Dosyalar yüklendi',
-      images: files.map((file, index) => ({
-        url: `/uploads/${file.filename}`,
+      images: uploadedFiles.map((result, index) => ({
+        url: result.secure_url,
         sortOrder: index,
         isCover: index === 0,
       })),
