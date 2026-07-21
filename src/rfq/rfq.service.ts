@@ -73,7 +73,7 @@ export class RfqService {
       sellerUsers.map((sellerUser) =>
         this.notificationService.createNotification({
           userId: sellerUser.id,
-          type: 'NEW_RFQ',
+          type: 'RFQ',
           title: 'Yeni Alım Talebi',
           message: `${product.title} ürününüz için yeni bir alım talebi oluşturuldu.`,
           link: '/seller/rfqs',
