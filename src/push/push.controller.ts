@@ -30,4 +30,13 @@ export class PushController {
   ) {
     return this.pushService.removeToken(req.user.id, token);
   }
+
+  @Post('test')
+  sendTestNotification(@Req() req: any) {
+    return this.pushService.sendToUser(req.user.id, {
+      title: 'Tedarik Pazarı',
+      body: 'Test bildirimi başarıyla gönderildi.',
+      url: '/notifications',
+    });
+  }
 }
