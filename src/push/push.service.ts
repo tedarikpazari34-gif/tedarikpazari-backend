@@ -31,7 +31,10 @@ export class PushService implements OnModuleInit {
 
     if (!projectId || !clientEmail || !privateKey) {
       this.logger.warn(
-        'Firebase ortam değişkenleri eksik. Push gönderimi devre dışı.',
+        `Firebase ortam değişkenleri eksik: ` +
+          `PROJECT_ID=${Boolean(projectId)}, ` +
+          `CLIENT_EMAIL=${Boolean(clientEmail)}, ` +
+          `PRIVATE_KEY=${Boolean(privateKey)}`,
       );
       return;
     }
