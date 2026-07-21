@@ -6,12 +6,14 @@ import {
 
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatGateway } from '../chat/chat.gateway';
+import { PushService } from '../push/push.service';
 
 @Injectable()
 export class NotificationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly chatGateway: ChatGateway,
+    private readonly pushService: PushService,
   ) {}
 
   async createNotification(data: {
@@ -32,6 +34,16 @@ export class NotificationService {
     });
 
     this.chatGateway.emitNotificationToUser(data.userId, notification);
+
+    void this.pushService
+      .sendToUser(data.userId, {
+        title: data.title,
+        body: data.message,
+        url: data.link || '/notifications',
+      })
+      .catch((error) => {
+        console.error('PUSH NOTIFICATION ERROR:', error);
+      });
 
     return notification;
   }
