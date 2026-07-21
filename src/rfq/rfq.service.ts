@@ -5,10 +5,14 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class RfqService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
+  ) {}
 
   // BUYER → RFQ oluşturur
   async create(user: any, data: any) {
@@ -40,7 +44,7 @@ export class RfqService {
       throw new BadRequestException('Bu ürün için RFQ kapalı');
     }
 
-    return this.prisma.rFQ.create({
+    const rfq = await this.prisma.rFQ.create({
       data: {
         productId: data.productId,
         buyerId: user.companyId,
@@ -54,6 +58,30 @@ export class RfqService {
         quotes: true,
       },
     });
+
+    const sellerUsers = await this.prisma.user.findMany({
+      where: {
+        companyId: product.sellerId,
+        role: 'SELLER',
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    await Promise.all(
+      sellerUsers.map((sellerUser) =>
+        this.notificationService.createNotification({
+          userId: sellerUser.id,
+          type: 'NEW_RFQ',
+          title: 'Yeni Alım Talebi',
+          message: `${product.title} ürününüz için yeni bir alım talebi oluşturuldu.`,
+          link: '/seller/rfqs',
+        }),
+      ),
+    );
+
+    return rfq;
   }
 
   // BUYER → kendi RFQ'ları

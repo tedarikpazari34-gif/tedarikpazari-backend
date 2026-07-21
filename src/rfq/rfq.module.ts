@@ -2,9 +2,10 @@ import { Module } from '@nestjs/common';
 import { RfqController } from './rfq.controller';
 import { RfqService } from './rfq.service';
 import { PrismaModule } from '../prisma/prisma.module';
+import { NotificationModule } from '../notification/notification.module';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, NotificationModule],
   controllers: [RfqController],
   providers: [RfqService],
 })
