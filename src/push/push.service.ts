@@ -136,10 +136,15 @@ export class PushService implements OnModuleInit {
         url: payload.url || '/notifications',
       },
       webpush: {
-        fcmOptions: {
-          link: payload.url || '/notifications',
-        },
-      },
+  notification: {
+    title: payload.title,
+    body: payload.body,
+    icon: '/favicon.ico',
+  },
+  fcmOptions: {
+    link: payload.url || '/notifications',
+  },
+},
     });
 
     const invalidSubscriptionIds: string[] = [];
