@@ -3,7 +3,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CompanyStatus } from '@prisma/client';
+import { CompanyStatus, VerificationStatus } from '@prisma/client';
 
 @Injectable()
 export class AdminService {
@@ -83,6 +83,85 @@ export class AdminService {
     return this.prisma.company.update({
       where: { id: companyId },
       data: { verified: false },
+    });
+  }
+
+  async listVerificationRequests() {
+    return this.prisma.verificationRequest.findMany({
+      include: {
+        company: true,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+  }
+
+  async approveVerificationRequest(
+    requestId: string,
+    adminNote?: string,
+  ) {
+    const request =
+      await this.prisma.verificationRequest.findUnique({
+        where: { id: requestId },
+      });
+
+    if (!request) {
+      throw new NotFoundException(
+        'Doğrulama başvurusu bulunamadı',
+      );
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated =
+        await tx.verificationRequest.update({
+          where: { id: requestId },
+          data: {
+            status: VerificationStatus.APPROVED,
+            adminNote: adminNote || null,
+            reviewedAt: new Date(),
+          },
+          include: {
+            company: true,
+          },
+        });
+
+      await tx.company.update({
+        where: { id: request.companyId },
+        data: {
+          verified: true,
+        },
+      });
+
+      return updated;
+    });
+  }
+
+  async rejectVerificationRequest(
+    requestId: string,
+    adminNote?: string,
+  ) {
+    const request =
+      await this.prisma.verificationRequest.findUnique({
+        where: { id: requestId },
+      });
+
+    if (!request) {
+      throw new NotFoundException(
+        'Doğrulama başvurusu bulunamadı',
+      );
+    }
+
+    return this.prisma.verificationRequest.update({
+      where: { id: requestId },
+      data: {
+        status: VerificationStatus.REJECTED,
+        adminNote: adminNote || null,
+        reviewedAt: new Date(),
+      },
+      include: {
+        company: true,
+      },
     });
   }
 

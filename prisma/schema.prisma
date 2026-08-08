@@ -38,6 +38,12 @@ enum PayoutStatus {
   PAID
 }
 
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum DisputeStatus {
   OPEN
   SELLER_RESPONDED
@@ -142,13 +148,14 @@ model Company {
   rating         Float   @default(0)
   reviewCount    Int     @default(0)
 
-  users      User[]
-  products   Product[]
-  rfqs       RFQ[]
-  quotes     Quote[]
-  ordersBuy  Order[]   @relation("BuyerOrders")
-  ordersSell Order[]   @relation("SellerOrders")
-  payouts    Payout[]
+  users                User[]
+  products             Product[]
+  rfqs                 RFQ[]
+  quotes               Quote[]
+  ordersBuy            Order[]               @relation("BuyerOrders")
+  ordersSell           Order[]               @relation("SellerOrders")
+  payouts              Payout[]
+  verificationRequests VerificationRequest[]
 
   disputesBuyer  Dispute[] @relation("BuyerDisputes")
   disputesSeller Dispute[] @relation("SellerDisputes")
@@ -427,6 +434,25 @@ model Payout {
   seller Company @relation(fields: [sellerId], references: [id])
 
   @@index([sellerId])
+  @@index([status])
+}
+
+model VerificationRequest {
+  id           String             @id @default(cuid())
+  companyId    String
+  documentUrl  String
+  documentType String?
+  fileName     String?
+  publicId     String?
+  note         String?
+  adminNote    String?
+  status       VerificationStatus @default(PENDING)
+  createdAt    DateTime           @default(now())
+  reviewedAt   DateTime?
+
+  company Company @relation(fields: [companyId], references: [id])
+
+  @@index([companyId])
   @@index([status])
 }
 

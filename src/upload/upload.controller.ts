@@ -118,6 +118,56 @@ export class UploadController {
     };
   }
 
+  @Post('verification')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+      required: ['file'],
+    },
+  })
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage,
+      fileFilter: disputeFileFilter,
+      limits: {
+        fileSize: 10 * 1024 * 1024,
+      },
+    }),
+  )
+  async uploadVerificationDocument(
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) {
+      throw new BadRequestException(
+        'Doğrulama belgesi yüklenemedi',
+      );
+    }
+
+    const result = await this.cloudinaryService.uploadBuffer(
+      file.buffer,
+      {
+        folder:
+          'tedarik-pazari-platform/verification-documents',
+        resource_type: 'auto',
+      },
+    );
+
+    return {
+      message: 'Doğrulama belgesi yüklendi',
+      documentUrl: result.secure_url,
+      publicId: result.public_id,
+      originalName: file.originalname,
+      mimeType: file.mimetype,
+    };
+  }
+
   @Post('dispute')
   @ApiConsumes('multipart/form-data')
   @ApiBody({

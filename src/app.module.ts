@@ -27,6 +27,7 @@ import { NotificationModule } from './notification/notification.module';
 import { ReviewModule } from './review/review.module';
 import { ChatModule } from './chat/chat.module';
 import { PushModule } from './push/push.module';
+import { VerificationModule } from './verification/verification.module';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { PushModule } from './push/push.module';
     ReviewModule,
     ChatModule,
     PushModule,
+    VerificationModule,
   ],
   controllers: [AppController],
   providers: [],

@@ -6,7 +6,6 @@ import {
   UseGuards,
   Req,
   ForbiddenException,
-  Body,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -46,67 +45,6 @@ export class AdminController {
   blockCompany(@Req() req: any, @Param('id') companyId: string) {
     this.checkAdmin(req);
     return this.adminService.blockCompany(companyId);
-  }
-
-
-  @UseGuards(JwtAuthGuard, AdminGuard)
-  @Post('companies/:id/verify')
-  @ApiOperation({ summary: 'Verify company (ADMIN)' })
-  verifyCompany(@Req() req: any, @Param('id') companyId: string) {
-    this.checkAdmin(req);
-    return this.adminService.verifyCompany(companyId);
-  }
-
-  @UseGuards(JwtAuthGuard, AdminGuard)
-  @Post('companies/:id/unverify')
-  @ApiOperation({ summary: 'Remove company verification (ADMIN)' })
-  unverifyCompany(@Req() req: any, @Param('id') companyId: string) {
-    this.checkAdmin(req);
-    return this.adminService.unverifyCompany(companyId);
-  }
-
-  @UseGuards(JwtAuthGuard, AdminGuard)
-  @Get('verification-requests')
-  @ApiOperation({
-    summary: 'List company verification requests (ADMIN)',
-  })
-  listVerificationRequests(@Req() req: any) {
-    this.checkAdmin(req);
-    return this.adminService.listVerificationRequests();
-  }
-
-  @UseGuards(JwtAuthGuard, AdminGuard)
-  @Post('verification-requests/:id/approve')
-  @ApiOperation({
-    summary: 'Approve company verification request (ADMIN)',
-  })
-  approveVerificationRequest(
-    @Req() req: any,
-    @Param('id') requestId: string,
-    @Body() body: { adminNote?: string },
-  ) {
-    this.checkAdmin(req);
-    return this.adminService.approveVerificationRequest(
-      requestId,
-      body?.adminNote,
-    );
-  }
-
-  @UseGuards(JwtAuthGuard, AdminGuard)
-  @Post('verification-requests/:id/reject')
-  @ApiOperation({
-    summary: 'Reject company verification request (ADMIN)',
-  })
-  rejectVerificationRequest(
-    @Req() req: any,
-    @Param('id') requestId: string,
-    @Body() body: { adminNote?: string },
-  ) {
-    this.checkAdmin(req);
-    return this.adminService.rejectVerificationRequest(
-      requestId,
-      body?.adminNote,
-    );
   }
 
   @UseGuards(JwtAuthGuard, AdminGuard)
