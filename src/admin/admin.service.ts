@@ -55,6 +55,37 @@ export class AdminService {
   });
 }
 
+
+  async verifyCompany(companyId: string) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+    });
+
+    if (!company) {
+      throw new NotFoundException('Company not found');
+    }
+
+    return this.prisma.company.update({
+      where: { id: companyId },
+      data: { verified: true },
+    });
+  }
+
+  async unverifyCompany(companyId: string) {
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+    });
+
+    if (!company) {
+      throw new NotFoundException('Company not found');
+    }
+
+    return this.prisma.company.update({
+      where: { id: companyId },
+      data: { verified: false },
+    });
+  }
+
   async listPendingProducts() {
     return this.prisma.product.findMany({
       where: {

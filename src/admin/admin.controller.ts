@@ -47,6 +47,23 @@ export class AdminController {
     return this.adminService.blockCompany(companyId);
   }
 
+
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Post('companies/:id/verify')
+  @ApiOperation({ summary: 'Verify company (ADMIN)' })
+  verifyCompany(@Req() req: any, @Param('id') companyId: string) {
+    this.checkAdmin(req);
+    return this.adminService.verifyCompany(companyId);
+  }
+
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Post('companies/:id/unverify')
+  @ApiOperation({ summary: 'Remove company verification (ADMIN)' })
+  unverifyCompany(@Req() req: any, @Param('id') companyId: string) {
+    this.checkAdmin(req);
+    return this.adminService.unverifyCompany(companyId);
+  }
+
   @UseGuards(JwtAuthGuard, AdminGuard)
   @Get('products/pending')
   @ApiOperation({ summary: 'List pending products (ADMIN)' })
