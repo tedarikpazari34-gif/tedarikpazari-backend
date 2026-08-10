@@ -65,7 +65,7 @@ export class ProductService {
         ...(q
           ? {
               title: {
-                contains: q,
+                contains: q.toLocaleLowerCase('tr-TR'),
               },
             }
           : {}),
