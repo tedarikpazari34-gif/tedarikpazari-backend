@@ -28,6 +28,8 @@ async function bootstrap() {
   app.enableCors({
     origin: [
       'http://localhost:5173',
+      'https://localhost',
+      'capacitor://localhost',
       'https://xn--tedarikpazar-d5b.com',
       'https://www.xn--tedarikpazar-d5b.com',
       'https://tedarikci-frontend.onrender.com',
