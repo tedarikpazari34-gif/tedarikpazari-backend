@@ -153,6 +153,7 @@ export class PaymentsService {
       conversationId,
       token: result.token,
       checkoutFormContent: result.checkoutFormContent,
+      paymentPageUrl: result.paymentPageUrl,
     };
   }
 
