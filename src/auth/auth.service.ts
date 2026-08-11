@@ -63,8 +63,17 @@ export class AuthService {
 
     await this.verifyRecaptcha(recaptchaToken);
 
-    if (!companyName || !email || !password || !role) {
-      throw new BadRequestException('Eksik bilgi');
+    if (
+      !companyName?.trim() ||
+      !email?.trim() ||
+      !password ||
+      !role ||
+      !fullName?.trim() ||
+      !phone?.trim()
+    ) {
+      throw new BadRequestException(
+        'Firma adı, yetkili kişi, telefon, e-posta, şifre ve rol zorunludur',
+      );
     }
 
     const existingUser = await this.prisma.user.findUnique({
@@ -82,7 +91,7 @@ export class AuthService {
         name: companyName,
         role,
         email,
-        phone: phone || null,
+        phone: phone.trim(),
         city: city || null,
         taxNumber: taxNumber || null,
         taxOffice: taxOffice || null,
@@ -91,7 +100,7 @@ export class AuthService {
           district: district || '',
           companyType: companyType || '',
           category: category || '',
-          fullName: fullName || '',
+          fullName: fullName.trim(),
         },
       },
     });

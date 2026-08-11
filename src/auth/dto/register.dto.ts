@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEmail, IsOptional, IsString } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, Matches } from 'class-validator';
 
 export class RegisterDto {
   @ApiProperty({ example: 'ABC Ltd.' })
@@ -22,15 +22,18 @@ export class RegisterDto {
   @IsString()
   recaptchaToken: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
+  @ApiProperty({ example: 'Ad Soyad' })
   @IsString()
-  fullName?: string;
+  @IsNotEmpty({ message: 'Yetkili kişi adı zorunludur' })
+  fullName: string;
 
-  @ApiPropertyOptional()
-  @IsOptional()
+  @ApiProperty({ example: '+90 555 123 45 67' })
   @IsString()
-  phone?: string;
+  @IsNotEmpty({ message: 'Telefon numarası zorunludur' })
+  @Matches(/^[+0-9()\s-]{8,20}$/, {
+    message: 'Geçerli bir telefon numarası giriniz',
+  })
+  phone: string;
 
   @ApiPropertyOptional()
   @IsOptional()
