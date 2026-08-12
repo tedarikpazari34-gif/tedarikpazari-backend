@@ -55,10 +55,29 @@ export class QuoteService {
         );
       }
     } else if (rfq.categoryId) {
+      const requestedCategory = await this.prisma.category.findUnique({
+        where: { id: rfq.categoryId },
+        select: {
+          id: true,
+          parentId: true,
+        },
+      });
+
+      if (!requestedCategory) {
+        throw new BadRequestException('RFQ kategorisi bulunamadı');
+      }
+
+      const allowedCategoryIds = [
+        requestedCategory.id,
+        ...(requestedCategory.parentId ? [requestedCategory.parentId] : []),
+      ];
+
       const eligibleProduct = await this.prisma.product.findFirst({
         where: {
           sellerId: user.companyId,
-          categoryId: rfq.categoryId,
+          categoryId: {
+            in: allowedCategoryIds,
+          },
           isActive: true,
           isApproved: true,
         },
