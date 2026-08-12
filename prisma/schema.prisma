@@ -312,6 +312,7 @@ model RFQ {
   buyerId    String
   title      String?
   quantity   Int
+  unitType   String?
   note       String?
   status     RFQStatus @default(OPEN)
   createdAt  DateTime  @default(now())
