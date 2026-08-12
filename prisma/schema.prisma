@@ -236,6 +236,7 @@ model Category {
   createdAt DateTime   @default(now())
 
   products Product[]
+  rfqs     RFQ[]
 
   @@index([parentId])
 }
@@ -305,16 +306,19 @@ model ProductImage {
 }
 
 model RFQ {
-  id        String    @id @default(cuid())
-  productId String
-  buyerId   String
-  quantity  Int
-  note      String?
-  status    RFQStatus @default(OPEN)
-  createdAt DateTime  @default(now())
+  id         String    @id @default(cuid())
+  productId  String?
+  categoryId String?
+  buyerId    String
+  title      String?
+  quantity   Int
+  note       String?
+  status     RFQStatus @default(OPEN)
+  createdAt  DateTime  @default(now())
 
-  product Product @relation(fields: [productId], references: [id])
-  buyer   Company @relation(fields: [buyerId], references: [id])
+  product  Product?  @relation(fields: [productId], references: [id])
+  category Category? @relation(fields: [categoryId], references: [id])
+  buyer    Company   @relation(fields: [buyerId], references: [id])
 
   quotes Quote[]
   order  Order?
@@ -322,6 +326,7 @@ model RFQ {
   chatThreads ChatThread[]
 
   @@index([productId])
+  @@index([categoryId])
   @@index([buyerId])
   @@index([status])
 }

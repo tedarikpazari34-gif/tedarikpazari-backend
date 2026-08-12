@@ -20,33 +20,62 @@ export class RfqService {
       throw new ForbiddenException('Sadece BUYER RFQ oluşturabilir');
     }
 
-    if (!data?.productId) {
-      throw new BadRequestException('productId zorunlu');
+    const productId = data?.productId || null;
+    const categoryId = data?.categoryId || null;
+    const title = data?.title?.trim() || null;
+
+    if (!productId && !categoryId) {
+      throw new BadRequestException(
+        'Ürün veya kategori seçilmelidir',
+      );
     }
 
     if (!data?.quantity || Number(data.quantity) < 1) {
       throw new BadRequestException('quantity en az 1 olmalı');
     }
 
-    const product = await this.prisma.product.findUnique({
-      where: { id: data.productId },
-    });
+    let product: any = null;
+    let category: any = null;
 
-    if (!product) {
-      throw new NotFoundException('Ürün bulunamadı');
+    if (productId) {
+      product = await this.prisma.product.findUnique({
+        where: { id: productId },
+      });
+
+      if (!product) {
+        throw new NotFoundException('Ürün bulunamadı');
+      }
+
+      if (!product.isActive || !product.isApproved) {
+        throw new BadRequestException('Ürün aktif veya onaylı değil');
+      }
+
+      if (product.rfqEnabled === false) {
+        throw new BadRequestException('Bu ürün için RFQ kapalı');
+      }
     }
 
-    if (!product.isActive || !product.isApproved) {
-      throw new BadRequestException('Ürün aktif veya onaylı değil');
-    }
+    if (categoryId) {
+      category = await this.prisma.category.findUnique({
+        where: { id: categoryId },
+      });
 
-    if (product.rfqEnabled === false) {
-      throw new BadRequestException('Bu ürün için RFQ kapalı');
+      if (!category) {
+        throw new NotFoundException('Kategori bulunamadı');
+      }
+
+      if (!title) {
+        throw new BadRequestException(
+          'Kategori bazlı talepte başlık zorunludur',
+        );
+      }
     }
 
     const rfq = await this.prisma.rFQ.create({
       data: {
-        productId: data.productId,
+        productId,
+        categoryId,
+        title,
         buyerId: user.companyId,
         quantity: Number(data.quantity),
         note: data.note || null,
@@ -54,32 +83,67 @@ export class RfqService {
       },
       include: {
         product: true,
+        category: true,
         buyer: true,
         quotes: true,
       },
     });
 
-    const sellerUsers = await this.prisma.user.findMany({
-      where: {
-        companyId: product.sellerId,
-        role: 'SELLER',
-      },
-      select: {
-        id: true,
-      },
-    });
+    if (product) {
+      const sellerUsers = await this.prisma.user.findMany({
+        where: {
+          companyId: product.sellerId,
+          role: 'SELLER',
+        },
+        select: {
+          id: true,
+        },
+      });
 
-    await Promise.all(
-      sellerUsers.map((sellerUser) =>
-        this.notificationService.createNotification({
-          userId: sellerUser.id,
-          type: 'RFQ',
-          title: 'Yeni Alım Talebi',
-          message: `${product.title} ürününüz için yeni bir alım talebi oluşturuldu.`,
-          link: '/seller/rfqs',
-        }),
-      ),
-    );
+      await Promise.all(
+        sellerUsers.map((sellerUser) =>
+          this.notificationService.createNotification({
+            userId: sellerUser.id,
+            type: 'RFQ',
+            title: 'Yeni Alım Talebi',
+            message: `${product.title} ürününüz için yeni bir alım talebi oluşturuldu.`,
+            link: '/seller/rfqs',
+          }),
+        ),
+      );
+    }
+
+    if (category) {
+      const sellerUsers = await this.prisma.user.findMany({
+        where: {
+          role: 'SELLER',
+          company: {
+            products: {
+              some: {
+                categoryId: category.id,
+                isActive: true,
+                isApproved: true,
+              },
+            },
+          },
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      await Promise.all(
+        sellerUsers.map((sellerUser) =>
+          this.notificationService.createNotification({
+            userId: sellerUser.id,
+            type: 'RFQ',
+            title: 'Yeni Kategori Talebi',
+            message: `${title || category.name} için yeni bir alım talebi oluşturuldu.`,
+            link: '/seller/rfqs',
+          }),
+        ),
+      );
+    }
 
     return rfq;
   }
@@ -187,14 +251,48 @@ export class RfqService {
       );
     }
 
+    const sellerCategoryIds = await this.prisma.product.findMany({
+      where: {
+        sellerId: user.companyId,
+        isActive: true,
+        isApproved: true,
+        categoryId: {
+          not: null,
+        },
+      },
+      select: {
+        categoryId: true,
+      },
+      distinct: ['categoryId'],
+    });
+
+    const categoryIds = sellerCategoryIds
+      .map((item) => item.categoryId)
+      .filter((id): id is string => Boolean(id));
+
     return this.prisma.rFQ.findMany({
       where: {
-        product: {
-          sellerId: user.companyId,
-        },
+        status: 'OPEN',
+        OR: [
+          {
+            product: {
+              sellerId: user.companyId,
+            },
+          },
+          ...(categoryIds.length > 0
+            ? [
+                {
+                  categoryId: {
+                    in: categoryIds,
+                  },
+                },
+              ]
+            : []),
+        ],
       },
       include: {
         product: true,
+        category: true,
         buyer: true,
         quotes: {
           include: {

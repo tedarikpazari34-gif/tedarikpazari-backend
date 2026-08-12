@@ -141,7 +141,7 @@ export class OrderService {
         userId: sellerUser.id,
         type: 'ORDER',
         title: 'Teklifiniz Kabul Edildi',
-        message: `${quote.rfq.product?.title || 'Ürün'} için verdiğiniz teklif siparişe dönüştü.`,
+        message: `${quote.rfq.product?.title || quote.rfq.title || 'Alım Talebi'} için verdiğiniz teklif siparişe dönüştü.`,
         link: '/seller/orders',
       });
     }

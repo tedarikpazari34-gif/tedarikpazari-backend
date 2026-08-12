@@ -31,6 +31,7 @@ export class QuoteService {
       where: { id: body.rfqId },
       include: {
         product: true,
+        category: true,
         buyer: {
           include: {
             users: true,
@@ -47,15 +48,41 @@ export class QuoteService {
       throw new BadRequestException('Bu RFQ artık açık değil');
     }
 
-    if (!rfq.product) {
-      throw new BadRequestException('RFQ ürünü bulunamadı');
-    }
+    if (rfq.product) {
+      if (rfq.product.sellerId !== user.companyId) {
+        throw new ForbiddenException(
+          'Sadece kendi ürününüze gelen RFQya teklif verebilirsiniz',
+        );
+      }
+    } else if (rfq.categoryId) {
+      const eligibleProduct = await this.prisma.product.findFirst({
+        where: {
+          sellerId: user.companyId,
+          categoryId: rfq.categoryId,
+          isActive: true,
+          isApproved: true,
+        },
+        select: {
+          id: true,
+        },
+      });
 
-    if (rfq.product.sellerId !== user.companyId) {
-      throw new ForbiddenException(
-        'Sadece kendi ürününüze gelen RFQya teklif verebilirsiniz',
+      if (!eligibleProduct) {
+        throw new ForbiddenException(
+          'Bu kategori talebine teklif verme yetkiniz yok',
+        );
+      }
+    } else {
+      throw new BadRequestException(
+        'RFQ ürün veya kategori bilgisi içermiyor',
       );
     }
+
+    const rfqLabel =
+      rfq.product?.title ||
+      rfq.title ||
+      rfq.category?.name ||
+      'Alım Talebi';
 
     const existingQuote = await this.prisma.quote.findFirst({
       where: {
@@ -95,7 +122,7 @@ export class QuoteService {
         userId: buyerUser.id,
         type: 'QUOTE',
         title: 'Yeni Teklif Geldi',
-        message: `${rfq.product.title || 'Ürün'} için yeni teklif aldınız.`,
+        message: `${rfqLabel} için yeni teklif aldınız.`,
         link: `/buyer/rfqs/${rfq.id}`,
       });
     }
@@ -107,11 +134,11 @@ export class QuoteService {
         this.mailService.sendMail({
           to: buyerUser.email,
           subject: 'Tedarik Pazarı - Yeni teklif geldi',
-          text: `${rfq.product.title || 'Ürün'} için yeni teklif aldınız.`,
+          text: `${rfqLabel} için yeni teklif aldınız.`,
           html: `
             <div style="font-family:Arial,sans-serif;line-height:1.6">
               <h2>Yeni teklif geldi</h2>
-              <p><strong>${rfq.product.title || 'Ürün'}</strong> için yeni teklif aldınız.</p>
+              <p><strong>${rfqLabel}</strong> için yeni teklif aldınız.</p>
               <p>Teklifi görüntülemek için Tedarik Pazarı hesabınıza giriş yapın.</p>
             </div>
           `,
