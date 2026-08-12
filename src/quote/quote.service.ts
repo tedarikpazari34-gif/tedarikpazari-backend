@@ -87,9 +87,42 @@ export class QuoteService {
       });
 
       if (!eligibleProduct) {
-        throw new ForbiddenException(
-          'Bu kategori talebine teklif verme yetkiniz yok',
-        );
+        const sellerCompany = await this.prisma.company.findUnique({
+          where: { id: user.companyId },
+          select: {
+            address: true,
+          },
+        });
+
+        const companyAddress = sellerCompany?.address as Record<string, any> | null;
+        const sellerSector =
+          typeof companyAddress?.category === 'string'
+            ? companyAddress.category.trim().toLocaleLowerCase('tr-TR')
+            : '';
+
+        const rootCategoryId =
+          requestedCategory.parentId || requestedCategory.id;
+
+        const rootCategory = await this.prisma.category.findUnique({
+          where: { id: rootCategoryId },
+          select: {
+            name: true,
+          },
+        });
+
+        const requestedSector =
+          rootCategory?.name?.trim().toLocaleLowerCase('tr-TR') || '';
+
+        const sectorMatches =
+          sellerSector &&
+          requestedSector &&
+          sellerSector === requestedSector;
+
+        if (!sectorMatches) {
+          throw new ForbiddenException(
+            'Bu kategori talebine teklif verme yetkiniz yok',
+          );
+        }
       }
     } else {
       throw new BadRequestException(
