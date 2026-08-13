@@ -40,20 +40,62 @@ export class AdminService {
   }
 
   async listCompanies() {
-  return this.prisma.company.findMany({
-    include: {
-      users: {
-        where: {
-          role: "ADMIN",
+    const companies = await this.prisma.company.findMany({
+      include: {
+        users: {
+          where: {
+            role: "ADMIN",
+          },
+          take: 1,
         },
-        take: 1,
+        products: {
+          select: {
+            id: true,
+            title: true,
+            imageUrl: true,
+            basePrice: true,
+            isApproved: true,
+            createdAt: true,
+            images: {
+              select: {
+                url: true,
+                isCover: true,
+              },
+              orderBy: {
+                sortOrder: "asc",
+              },
+            },
+          },
+          orderBy: {
+            createdAt: "desc",
+          },
+        },
       },
-    },
-    orderBy: {
-      createdAt: "desc",
-    },
-  });
-}
+      orderBy: {
+        createdAt: "desc",
+      },
+    });
+
+    return companies.map((company) => {
+      const productCount = company.products.length;
+      const approvedProductCount = company.products.filter(
+        (product) => product.isApproved
+      ).length;
+      const pendingProductCount = productCount - approvedProductCount;
+      const lastProductAt = company.products[0]?.createdAt ?? null;
+
+      const { products, ...companyData } = company;
+
+      return {
+        ...companyData,
+        productCount,
+        approvedProductCount,
+        pendingProductCount,
+        lastProductAt,
+        products,
+      };
+    });
+  }
 
 
   async verifyCompany(companyId: string) {
