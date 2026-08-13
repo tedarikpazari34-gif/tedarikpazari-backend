@@ -8,12 +8,14 @@ import { JwtStrategy } from './jwt.strategy';
 import { PrismaModule } from '../prisma/prisma.module';
 import { NotificationModule } from '../notification/notification.module';
 import { ChatModule } from '../chat/chat.module';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
   imports: [
     PrismaModule,
     NotificationModule,
     ChatModule,
+    MailModule,
     PassportModule,
     JwtModule.register({
       secret:

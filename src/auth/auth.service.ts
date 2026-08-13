@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationType, Prisma, Role } from '@prisma/client';
@@ -6,6 +7,7 @@ import * as bcrypt from 'bcrypt';
 import axios from 'axios';
 import { NotificationService } from '../notification/notification.service';
 import { ChatGateway } from '../chat/chat.gateway';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class AuthService {
@@ -14,6 +16,7 @@ export class AuthService {
     private readonly jwt: JwtService,
     private readonly notificationService: NotificationService,
     private readonly chatGateway: ChatGateway,
+    private readonly mailService: MailService,
   ) {}
 
   private async verifyRecaptcha(token?: string) {
@@ -153,6 +156,53 @@ export class AuthService {
       console.error('Admin firma bildirimi oluşturulamadı:', error);
     }
 
+    if (role === Role.SELLER) {
+      try {
+        const sellerNotification =
+          await this.notificationService.createNotification({
+            userId: user.id,
+            type: NotificationType.COMPANY,
+            title: 'Ürünlerinizi yükleyin',
+            message:
+              'Tedarik Pazarı’na hoş geldiniz. Alıcılara daha kolay ulaşmak için ürünlerinizi şimdi profilinize ekleyin.',
+            link: '/seller/products/new',
+          });
+
+        this.chatGateway.emitNotificationToUser(
+          user.id,
+          sellerNotification,
+        );
+
+        await this.mailService.sendMail({
+          to: user.email,
+          subject: 'Tedarik Pazarı - Ürünlerinizi yükleyin',
+          text:
+            'Tedarik Pazarı’na hoş geldiniz. Firmanızın alıcılar tarafından daha kolay bulunabilmesi ve yeni satış fırsatlarına ulaşabilmeniz için ürünlerinizi profilinize ekleyin: https://tedarikpazarı.com/seller/products/new',
+          html: `
+            <div style="font-family:Arial,sans-serif;line-height:1.6">
+              <h2>Tedarik Pazarı’na hoş geldiniz!</h2>
+              <p>
+                Firmanızın alıcılar tarafından daha kolay bulunabilmesi ve
+                yeni satış fırsatlarına ulaşabilmeniz için ürünlerinizi
+                profilinize ekleyin.
+              </p>
+              <p>
+                <a href="https://tedarikpazarı.com/seller/products/new">
+                  İlk ürününüzü şimdi yükleyin
+                </a>
+              </p>
+              <p>Tedarik Pazarı</p>
+            </div>
+          `,
+        });
+      } catch (error) {
+        console.error(
+          'Satıcı ürün yükleme bildirimi/e-postası gönderilemedi:',
+          error,
+        );
+      }
+    }
+
     return {
       message: 'signup ok',
       user: {
@@ -163,6 +213,95 @@ export class AuthService {
         companyStatus: user.company.status,
       },
     };
+  }
+
+  @Cron(CronExpression.EVERY_HOUR)
+  async remindSellersWithoutProducts() {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const reminderTitle = 'Ürünlerinizi eklemeyi unutmayın';
+
+    try {
+      const sellers = await this.prisma.user.findMany({
+        where: {
+          role: Role.SELLER,
+          company: {
+            createdAt: {
+              lte: cutoff,
+            },
+            products: {
+              none: {},
+            },
+          },
+          notifications: {
+            none: {
+              title: reminderTitle,
+            },
+          },
+        },
+        select: {
+          id: true,
+          email: true,
+          company: {
+            select: {
+              name: true,
+            },
+          },
+        },
+      });
+
+      for (const seller of sellers) {
+        const notification =
+          await this.notificationService.createNotification({
+            userId: seller.id,
+            type: NotificationType.COMPANY,
+            title: reminderTitle,
+            message:
+              'Firmanızda henüz ürün bulunmuyor. Alıcıların sizi keşfedebilmesi için ilk ürününüzü şimdi Tedarik Pazarı’na ekleyin.',
+            link: '/seller/products/new',
+          });
+
+        this.chatGateway.emitNotificationToUser(
+          seller.id,
+          notification,
+        );
+
+        try {
+          await this.mailService.sendMail({
+            to: seller.email,
+            subject: 'Tedarik Pazarı - İlk ürününüzü yükleyin',
+            text:
+              'Tedarik Pazarı hesabınızda henüz ürün bulunmuyor. Alıcıların firmanızı ve ürünlerinizi keşfedebilmesi için ilk ürününüzü ekleyin: https://tedarikpazarı.com/seller/products/new',
+            html: `
+              <div style="font-family:Arial,sans-serif;line-height:1.6">
+                <h2>Ürünlerinizi eklemeyi unutmayın</h2>
+                <p>Merhaba ${seller.company.name},</p>
+                <p>
+                  Tedarik Pazarı hesabınızda henüz ürün bulunmuyor.
+                  Alıcıların firmanızı ve ürünlerinizi keşfedebilmesi için
+                  ilk ürününüzü ekleyebilirsiniz.
+                </p>
+                <p>
+                  <a href="https://tedarikpazarı.com/seller/products/new">
+                    İlk ürününüzü şimdi yükleyin
+                  </a>
+                </p>
+                <p>Tedarik Pazarı</p>
+              </div>
+            `,
+          });
+        } catch (mailError) {
+          console.error(
+            `Satıcı ürün hatırlatma e-postası gönderilemedi (${seller.id}):`,
+            mailError,
+          );
+        }
+      }
+    } catch (error) {
+      console.error(
+        'Ürünü olmayan satıcılar kontrol edilemedi:',
+        error,
+      );
+    }
   }
 
   async login(data: any) {
