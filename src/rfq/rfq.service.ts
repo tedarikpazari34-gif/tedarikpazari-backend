@@ -100,19 +100,46 @@ export class RfqService {
         },
         select: {
           id: true,
+          email: true,
         },
       });
 
       await Promise.all(
-        sellerUsers.map((sellerUser) =>
-          this.notificationService.createNotification({
+        sellerUsers.map(async (sellerUser) => {
+          await this.notificationService.createNotification({
             userId: sellerUser.id,
             type: 'RFQ',
             title: 'Yeni Alım Talebi',
             message: `${product.title} ürününüz için yeni bir alım talebi oluşturuldu.`,
             link: '/seller/rfqs',
-          }),
-        ),
+          });
+
+          if (sellerUser.email) {
+            try {
+              await this.mailService.sendMail({
+                to: sellerUser.email,
+                subject: 'Tedarik Pazarı - Yeni alım talebi',
+                text: `${product.title} ürününüz için yeni bir alım talebi oluşturuldu. Talebi satıcı panelinizden inceleyebilir ve teklif verebilirsiniz.`,
+                html: `
+                  <div style="font-family:Arial,sans-serif;line-height:1.6">
+                    <h2>Yeni alım talebi</h2>
+                    <p><strong>${product.title}</strong> ürününüz için yeni bir alım talebi oluşturuldu.</p>
+                    <p>Talebi satıcı panelinizden inceleyebilir ve uygun ise teklif verebilirsiniz.</p>
+                  </div>
+                `,
+              });
+
+              console.log(
+                `[RFQ MATCH EMAIL] sent to=${sellerUser.email} rfq=${rfq.id}`,
+              );
+            } catch (err) {
+              console.error(
+                `[RFQ MATCH EMAIL] failed to=${sellerUser.email} rfq=${rfq.id}`,
+                err,
+              );
+            }
+          }
+        }),
       );
     }
 
