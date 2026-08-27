@@ -15,6 +15,56 @@ export class AiService {
     this.openai = new OpenAI({ apiKey });
   }
 
+  async createQuoteDraft(input: {
+    title?: string;
+    quantity?: number | string;
+    unitType?: string;
+    note?: string;
+  }) {
+    const response = await this.openai.responses.create({
+      model: 'gpt-5-mini',
+      input: [
+        {
+          role: 'system',
+          content:
+            'Sen Tedarik Pazarı için B2B satıcı teklif asistanısın. Fiyat belirleme. Kullanıcının RFQ bilgilerine göre yalnızca gerçekçi bir teslim süresi öner ve kısa, profesyonel bir satıcı notu hazırla. Bilmediğin stok, marka, sertifika veya ürün özelliğini uydurma. Türkçe yaz. Satıcı notu en fazla 3-4 kısa cümle olsun.',
+        },
+        {
+          role: 'user',
+          content: `RFQ bilgileri:
+
+Başlık: ${input.title || ''}
+Miktar: ${input.quantity || ''} ${input.unitType || ''}
+Talep açıklaması:
+${input.note || ''}
+
+Sadece geçerli JSON döndür:
+{
+  "deliveryDays": 3,
+  "sellerNote": "kısa profesyonel teklif notu"
+}`,
+        },
+      ],
+    });
+
+    const text = response.output_text?.trim();
+
+    if (!text) {
+      throw new BadRequestException('AI yanıt üretemedi');
+    }
+
+    try {
+      const cleaned = text
+        .replace(/^```json\s*/i, '')
+        .replace(/^```\s*/i, '')
+        .replace(/\s*```$/i, '');
+
+      return JSON.parse(cleaned);
+    } catch {
+      throw new BadRequestException('AI yanıtı işlenemedi');
+    }
+  }
+
   async createRfqDraft(prompt: string) {
     if (!prompt?.trim()) {
       throw new BadRequestException('Talep metni boş olamaz');

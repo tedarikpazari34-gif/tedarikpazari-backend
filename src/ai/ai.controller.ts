@@ -7,6 +7,20 @@ export class AiController {
   constructor(private readonly aiService: AiService) {}
 
   @UseGuards(JwtAuthGuard)
+  @Post('quote-draft')
+  createQuoteDraft(
+    @Body()
+    body: {
+      title?: string;
+      quantity?: number | string;
+      unitType?: string;
+      note?: string;
+    },
+  ) {
+    return this.aiService.createQuoteDraft(body);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post('rfq-draft')
   createRfqDraft(
     @Req() req: any,
