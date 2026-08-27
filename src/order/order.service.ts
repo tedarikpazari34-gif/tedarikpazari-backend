@@ -451,6 +451,81 @@ async ship(user: any, orderId: string, body: ShipOrderDto) {
   };
 }
 
+async selfDelivery(user: any, orderId: string) {
+  if (user.role !== Role.SELLER) {
+    throw new ForbiddenException('Sadece SELLER teslimata hazırlayabilir');
+  }
+
+  const order = await this.prisma.order.findUnique({
+    where: { id: orderId },
+  });
+
+  if (!order) {
+    throw new NotFoundException('Order not found');
+  }
+
+  if (order.sellerId !== user.companyId) {
+    throw new ForbiddenException('Bu order size ait değil');
+  }
+
+  if (order.status !== OrderStatus.PREPARING) {
+    throw new BadRequestException(
+      `Order PREPARING değil. Mevcut status: ${order.status}`,
+    );
+  }
+
+  const updated = await this.prisma.order.update({
+    where: { id: order.id },
+    data: {
+      status: OrderStatus.SHIPPED,
+      shippedAt: new Date(),
+      shippingCompany: 'Kendi Teslimatım',
+      shippingTrackingNo: null,
+    },
+  });
+
+  try {
+    const buyerUser = await this.prisma.user.findFirst({
+      where: { companyId: order.buyerId },
+    });
+
+    if (buyerUser) {
+      await this.notificationService.createNotification({
+        userId: buyerUser.id,
+        type: 'ORDER',
+        title: 'Sipariş Teslime Hazır',
+        message:
+          'Siparişiniz hazırlandı. Teslimatı kendi imkanlarınızla gerçekleştirebilirsiniz.',
+        link: '/buyer/orders',
+      });
+    }
+
+    if (buyerUser?.email) {
+      await this.mailService.sendMail({
+        to: buyerUser.email,
+        subject: 'Tedarik Pazarı - Siparişiniz teslime hazır',
+        text:
+          'Siparişiniz hazırlandı. Teslimatı kendi imkanlarınızla gerçekleştirebilirsiniz.',
+        html: `
+          <div style="font-family:Arial,sans-serif;line-height:1.6">
+            <h2>Siparişiniz teslime hazır</h2>
+            <p>Siparişiniz satıcı tarafından hazırlandı.</p>
+            <p>Teslimatı kendi imkanlarınızla gerçekleştirebilirsiniz.</p>
+            <p>Sipariş detaylarını alıcı panelinizden görüntüleyebilirsiniz.</p>
+          </div>
+        `,
+      });
+    }
+  } catch (err) {
+    console.error('self delivery notification/mail failed', err);
+  }
+
+  return {
+    message: 'Order ready for self delivery',
+    order: updated,
+  };
+}
+
 async complete(user: any, orderId: string) {
   if (user.role !== Role.BUYER) {
     throw new ForbiddenException('Sadece BUYER tamamlayabilir');
