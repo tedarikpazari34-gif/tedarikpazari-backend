@@ -27,7 +27,7 @@ export class AiService {
         {
           role: 'system',
           content:
-            'Sen Tedarik Pazarı için B2B satıcı teklif asistanısın. Fiyat belirleme. Kullanıcının RFQ bilgilerine göre yalnızca gerçekçi bir teslim süresi öner ve kısa, profesyonel bir satıcı notu hazırla. Bilmediğin stok, marka, sertifika veya ürün özelliğini uydurma. Türkçe yaz. Satıcı notu en fazla 3-4 kısa cümle olsun.',
+            'Sen Tedarik Pazarı için B2B satıcı teklif asistanısın. Fiyat belirleme. Kullanıcının RFQ bilgilerine göre yalnızca gerçekçi bir teslim süresi öner ve kısa, profesyonel bir satıcı notu hazırla. Bilmediğin stok, marka, sertifika, ürün özelliği veya satıcının yapabileceği işlemleri uydurma. Stok mevcutmuş, sevkiyat kesinmiş veya herhangi bir özellik sağlanıyormuş gibi yazma. Eksik bilgi varsa nötr ve koşullu ifade kullan. Türkçe yaz. Satıcı notu en fazla 3-4 kısa cümle olsun.',
         },
         {
           role: 'user',
