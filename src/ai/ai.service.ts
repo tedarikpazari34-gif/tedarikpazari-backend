@@ -60,7 +60,33 @@ Sadece geçerli JSON döndür:
         .replace(/^```\s*/i, '')
         .replace(/\s*```$/i, '');
 
-      return JSON.parse(cleaned);
+      const parsed = JSON.parse(cleaned);
+
+      let sellerNote = String(parsed.sellerNote || '');
+
+      sellerNote = sellerNote
+        .split(/(?<=[.!?])\s+/)
+        .filter((sentence) => {
+          const text = sentence.toLocaleLowerCase('tr-TR');
+
+          return !(
+            text.includes('kesin') ||
+            text.includes('stok') ||
+            text.includes('sevkiyat') ||
+            text.includes('teslim süresi') ||
+            /\b\d+\s*(iş\s*)?gün\b/i.test(text)
+          );
+        })
+        .join(' ')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+
+      return {
+        deliveryDays: Number(parsed.deliveryDays) || 3,
+        sellerNote:
+          sellerNote ||
+          'Talebiniz için teşekkür ederiz. Ürün detaylarının netleşmesiyle birlikte uygun teklifimizi paylaşabiliriz.',
+      };
     } catch {
       throw new BadRequestException('AI yanıtı işlenemedi');
     }
