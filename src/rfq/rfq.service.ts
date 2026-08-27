@@ -6,12 +6,14 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationService } from '../notification/notification.service';
+import { MailService } from '../mail/mail.service';
 
 @Injectable()
 export class RfqService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
+    private readonly mailService: MailService,
   ) {}
 
   // BUYER → RFQ oluşturur
@@ -130,19 +132,35 @@ export class RfqService {
         },
         select: {
           id: true,
+          email: true,
         },
       });
 
       await Promise.all(
-        sellerUsers.map((sellerUser) =>
-          this.notificationService.createNotification({
+        sellerUsers.map(async (sellerUser) => {
+          await this.notificationService.createNotification({
             userId: sellerUser.id,
             type: 'RFQ',
             title: 'Yeni Kategori Talebi',
             message: `${title || category.name} için yeni bir alım talebi oluşturuldu.`,
             link: '/seller/rfqs',
-          }),
-        ),
+          });
+
+          if (sellerUser.email) {
+            await this.mailService.sendMail({
+              to: sellerUser.email,
+              subject: 'Tedarik Pazarı - Yeni alım talebi',
+              text: `${title || category.name} için yeni bir alım talebi oluşturuldu. Talebi satıcı panelinizden inceleyebilir ve teklif verebilirsiniz.`,
+              html: `
+                <div style="font-family:Arial,sans-serif;line-height:1.6">
+                  <h2>Yeni alım talebi</h2>
+                  <p><strong>${title || category.name}</strong> için yeni bir alım talebi oluşturuldu.</p>
+                  <p>Talebi satıcı panelinizden inceleyebilir ve uygun ise teklif verebilirsiniz.</p>
+                </div>
+              `,
+            });
+          }
+        }),
       );
     }
 
