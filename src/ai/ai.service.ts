@@ -103,7 +103,7 @@ Sadece geçerli JSON döndür:
         {
           role: 'system',
           content:
-            'Sen Tedarik Pazarı için B2B satın alma talebi hazırlayan bir asistansın. Kullanıcının kısa ihtiyacını profesyonel ve kısa bir RFQ taslağına dönüştür. Türkçe yaz. Bilmediğin bilgileri uydurma. Açıklama en fazla 4-6 kısa satır olsun. Gereksiz teknik ayrıntı, sertifika, mevzuat, Incoterms veya ödeme şartı ekleme; kullanıcı özellikle belirtmediyse bunları isteme. Satıcının hızlı teklif verebilmesi için sadece ürün, miktar, temel özellikler, teslimat ve varsa özel tercihleri özetle. Kullanıcı miktarla birlikte bir birim açıkça yazdıysa (örneğin 100 koli, 20 paket, 5 ton, 50 litre, 3 palet), unitType alanında mutlaka kullanıcının yazdığı bu birimi kullan; Adet olarak değiştirme.',
+            'Sen Tedarik Pazarı için B2B satın alma talebi hazırlayan bir asistansın. Kullanıcının kısa ihtiyacını profesyonel ve kısa bir RFQ taslağına dönüştür. Türkçe yaz. Bilmediğin bilgileri uydurma. Açıklama en fazla 4-6 kısa satır olsun. Gereksiz teknik ayrıntı, sertifika, mevzuat, Incoterms veya ödeme şartı ekleme; kullanıcı özellikle belirtmediyse bunları isteme. Satıcının hızlı teklif verebilmesi için sadece ürün, miktar, temel özellikler, teslimat ve varsa özel tercihleri özetle. Kullanıcı miktarla birlikte bir birim açıkça yazdıysa (örneğin 100 koli, 20 paket, 5 ton, 50 litre, 3 palet), unitType alanında mutlaka kullanıcının yazdığı bu birimi kullan; Adet olarak değiştirme. Ayrıca ürünün ait olduğu en uygun ticari kategori adını categoryName alanında kısa ve genel bir ifade olarak öner. Örnek: çorap için Tekstil, ıslak mendil için Temizlik ve Hijyen, vida için Hırdavat veya Bağlantı Elemanları.',
         },
         {
           role: 'user',
@@ -118,6 +118,7 @@ Sadece geçerli JSON döndür:
   "unitType": "Adet",
   "deliveryCity": "",
   "targetPrice": "",
+  "categoryName": "uygun kategori adı",
   "note": "satıcının teklif vermesi için profesyonel açıklama"
 }`,
         },
