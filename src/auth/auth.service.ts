@@ -215,7 +215,7 @@ export class AuthService {
     };
   }
 
-  @Cron(CronExpression.EVERY_HOUR)
+  @Cron(CronExpression.EVERY_DAY_AT_9AM)
   async remindSellersWithoutProducts() {
     const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const reminderTitle = 'Ürünlerinizi eklemeyi unutmayın';
