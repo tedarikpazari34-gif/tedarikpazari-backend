@@ -147,18 +147,29 @@ export class RfqService {
           });
 
           if (sellerUser.email) {
-            await this.mailService.sendMail({
-              to: sellerUser.email,
-              subject: 'Tedarik Pazarı - Yeni alım talebi',
-              text: `${title || category.name} için yeni bir alım talebi oluşturuldu. Talebi satıcı panelinizden inceleyebilir ve teklif verebilirsiniz.`,
-              html: `
-                <div style="font-family:Arial,sans-serif;line-height:1.6">
-                  <h2>Yeni alım talebi</h2>
-                  <p><strong>${title || category.name}</strong> için yeni bir alım talebi oluşturuldu.</p>
-                  <p>Talebi satıcı panelinizden inceleyebilir ve uygun ise teklif verebilirsiniz.</p>
-                </div>
-              `,
-            });
+            try {
+              await this.mailService.sendMail({
+                to: sellerUser.email,
+                subject: 'Tedarik Pazarı - Yeni alım talebi',
+                text: `${title || category.name} için yeni bir alım talebi oluşturuldu. Talebi satıcı panelinizden inceleyebilir ve teklif verebilirsiniz.`,
+                html: `
+                  <div style="font-family:Arial,sans-serif;line-height:1.6">
+                    <h2>Yeni alım talebi</h2>
+                    <p><strong>${title || category.name}</strong> için yeni bir alım talebi oluşturuldu.</p>
+                    <p>Talebi satıcı panelinizden inceleyebilir ve uygun ise teklif verebilirsiniz.</p>
+                  </div>
+                `,
+              });
+
+              console.log(
+                `[RFQ MATCH EMAIL] sent to=${sellerUser.email} rfq=${rfq.id}`,
+              );
+            } catch (err) {
+              console.error(
+                `[RFQ MATCH EMAIL] failed to=${sellerUser.email} rfq=${rfq.id}`,
+                err,
+              );
+            }
           }
         }),
       );
