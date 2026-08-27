@@ -44,6 +44,13 @@ export class RfqController {
   }
 
   @UseGuards(JwtAuthGuard, CompanyStatusGuard)
+  @Get('seller/:id')
+  @ApiOperation({ summary: 'Get RFQ detail for SELLER' })
+  getForSeller(@Req() req: any, @Param('id') id: string) {
+    return this.rfqService.getForSellerById(req.user, id);
+  }
+
+  @UseGuards(JwtAuthGuard, CompanyStatusGuard)
   @Get('mine')
   @ApiOperation({ summary: 'List my RFQs (BUYER)' })
   listMine(@Req() req: any) {

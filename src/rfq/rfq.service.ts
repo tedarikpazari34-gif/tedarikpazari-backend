@@ -205,6 +205,41 @@ export class RfqService {
     return rfq;
   }
 
+  async getForSellerById(user: any, id: string) {
+    if (!user || user.role !== 'SELLER') {
+      throw new ForbiddenException(
+        'Sadece SELLER RFQ detayını görebilir',
+      );
+    }
+
+    const rfq = await this.prisma.rFQ.findUnique({
+      where: { id },
+      include: {
+        product: true,
+        category: true,
+        buyer: true,
+        quotes: {
+          include: {
+            seller: true,
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+        },
+      },
+    });
+
+    if (!rfq) {
+      throw new NotFoundException('RFQ bulunamadı');
+    }
+
+    if (rfq.status !== 'OPEN') {
+      throw new BadRequestException('Bu RFQ artık açık değil');
+    }
+
+    return rfq;
+  }
+
   // BUYER → kendi RFQ'ları
   async listMine(user: any) {
     if (!user || user.role !== 'BUYER') {
