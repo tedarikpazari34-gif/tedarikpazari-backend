@@ -67,10 +67,24 @@ export class QuoteService {
         throw new BadRequestException('RFQ kategorisi bulunamadı');
       }
 
-      const allowedCategoryIds = [
-        requestedCategory.id,
-        ...(requestedCategory.parentId ? [requestedCategory.parentId] : []),
-      ];
+      const rootCategoryId =
+        requestedCategory.parentId || requestedCategory.id;
+
+      const sectorCategories = await this.prisma.category.findMany({
+        where: {
+          OR: [
+            { id: rootCategoryId },
+            { parentId: rootCategoryId },
+          ],
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      const allowedCategoryIds = sectorCategories.map(
+        (category) => category.id,
+      );
 
       const eligibleProduct = await this.prisma.product.findFirst({
         where: {
@@ -99,9 +113,6 @@ export class QuoteService {
           typeof companyAddress?.category === 'string'
             ? companyAddress.category.trim().toLocaleLowerCase('tr-TR')
             : '';
-
-        const rootCategoryId =
-          requestedCategory.parentId || requestedCategory.id;
 
         const rootCategory = await this.prisma.category.findUnique({
           where: { id: rootCategoryId },
