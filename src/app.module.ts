@@ -29,6 +29,7 @@ import { ReviewModule } from './review/review.module';
 import { ChatModule } from './chat/chat.module';
 import { PushModule } from './push/push.module';
 import { VerificationModule } from './verification/verification.module';
+import { AiModule } from './ai/ai.module';
 
 @Module({
   imports: [
@@ -61,6 +62,7 @@ import { VerificationModule } from './verification/verification.module';
     ChatModule,
     PushModule,
     VerificationModule,
+    AiModule,
   ],
   controllers: [AppController],
   providers: [],
