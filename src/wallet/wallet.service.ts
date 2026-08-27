@@ -23,6 +23,82 @@ export class WalletService {
     return { wallet };
   }
 
+  async getHistory(user: any) {
+    const companyId = user.companyId;
+
+    const entries = await this.prisma.ledgerEntry.findMany({
+      where: {
+        OR: [
+          { fromCompanyId: companyId },
+          { toCompanyId: companyId },
+          {
+            order: {
+              is: {
+                OR: [
+                  { buyerId: companyId },
+                  { sellerId: companyId },
+                ],
+              },
+            },
+          },
+        ],
+      },
+      include: {
+        order: {
+          select: {
+            id: true,
+            buyerId: true,
+            sellerId: true,
+            totalAmount: true,
+            commissionAmount: true,
+            payoutAmount: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      take: 100,
+    });
+
+    const history = entries.map((entry) => {
+      const isSeller =
+        entry.order?.sellerId === companyId;
+
+      const isBuyer =
+        entry.order?.buyerId === companyId;
+
+      let direction: 'IN' | 'OUT' | 'INFO' = 'INFO';
+
+      if (entry.type === 'ESCROW_RELEASE_SELLER' && isSeller) {
+        direction = 'IN';
+      } else if (
+        entry.type === 'PAYOUT_REQUEST' ||
+        entry.type === 'PAYOUT_APPROVE'
+      ) {
+        direction = 'OUT';
+      } else if (entry.type === 'ADJUSTMENT') {
+        direction =
+          entry.toCompanyId === companyId ? 'IN' : 'OUT';
+      } else if (entry.type === 'ESCROW_DEPOSIT' && isBuyer) {
+        direction = 'OUT';
+      }
+
+      return {
+        id: entry.id,
+        type: entry.type,
+        amount: entry.amount,
+        currency: entry.currency,
+        note: entry.note,
+        createdAt: entry.createdAt,
+        direction,
+        orderId: entry.orderId,
+      };
+    });
+
+    return { history };
+  }
+
   // ✅ Admin test için bakiye yükle/indir
   async adminAdjust(user: any, companyId: string, amount: number, note?: string) {
     if (user.role !== Role.ADMIN) throw new ForbiddenException('Sadece ADMIN');
