@@ -247,6 +247,7 @@ export class AuthService {
             },
           },
         },
+        take: 100,
       });
 
       for (const seller of sellers) {
