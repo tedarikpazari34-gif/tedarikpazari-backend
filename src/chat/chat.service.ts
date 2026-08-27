@@ -427,6 +427,84 @@ export class ChatService {
     this.chatGateway.emitNewMessage(threadId, message);
     return message;
   }
+  async sendAdminCompanyMessage(
+    user: any,
+    companyId: string,
+    content: string,
+  ) {
+    if (user.role !== Role.ADMIN) {
+      throw new ForbiddenException('Bu işlemi sadece admin yapabilir');
+    }
+
+    if (!content || !content.trim()) {
+      throw new BadRequestException('Mesaj boş olamaz');
+    }
+
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+    });
+
+    if (!company) {
+      throw new NotFoundException('Firma bulunamadı');
+    }
+
+    const receivers = await this.prisma.user.findMany({
+      where: {
+        companyId,
+      },
+    });
+
+    if (!receivers.length) {
+      throw new NotFoundException('Firmaya bağlı kullanıcı bulunamadı');
+    }
+
+    const cleanContent = content.trim();
+
+    const notifications = await Promise.all(
+      receivers.map((receiver) =>
+        this.prisma.notification.create({
+          data: {
+            userId: receiver.id,
+            type: 'SYSTEM',
+            title: 'Tedarik Pazarı mesajı',
+            message: cleanContent,
+            link: '/',
+          },
+        }),
+      ),
+    );
+
+    notifications.forEach((notification, index) => {
+      this.chatGateway.emitNotificationToUser(
+        receivers[index].id,
+        notification,
+      );
+    });
+
+    const emailResults = await Promise.allSettled(
+      receivers
+        .filter((receiver) => receiver.email)
+        .map((receiver) =>
+          this.mailService.sendNewMessageEmail(
+            receiver.email,
+            cleanContent,
+          ),
+        ),
+    );
+
+    emailResults.forEach((result) => {
+      if (result.status === 'rejected') {
+        console.error('ADMIN COMPANY MESSAGE EMAIL ERROR:', result.reason);
+      }
+    });
+
+    return {
+      success: true,
+      message: 'Firma mesajı gönderildi',
+      receiverCount: receivers.length,
+    };
+  }
+
   async sendFileMessage(
     user: any,
     threadId: string,
