@@ -316,6 +316,12 @@ export class RfqService {
     return this.prisma.rFQ.findMany({
       where: {
         status: 'OPEN',
+        categoryId: {
+          not: null,
+        },
+        title: {
+          not: null,
+        },
       },
       select: {
         id: true,
