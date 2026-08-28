@@ -43,6 +43,12 @@ export class RfqController {
     return this.rfqService.close(req.user, id);
   }
 
+  @Get('public/recent')
+  @ApiOperation({ summary: 'List recent OPEN RFQs for public homepage' })
+  listPublicRecent() {
+    return this.rfqService.listPublicRecent();
+  }
+
   @UseGuards(JwtAuthGuard, CompanyStatusGuard)
   @Get('seller/:id')
   @ApiOperation({ summary: 'Get RFQ detail for SELLER' })

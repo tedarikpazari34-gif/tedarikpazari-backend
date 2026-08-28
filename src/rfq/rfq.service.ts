@@ -311,6 +311,37 @@ export class RfqService {
     });
   }
 
+  // PUBLIC → son açık RFQ'lar (anonim vitrin)
+  async listPublicRecent() {
+    return this.prisma.rFQ.findMany({
+      where: {
+        status: 'OPEN',
+      },
+      select: {
+        id: true,
+        title: true,
+        quantity: true,
+        unitType: true,
+        note: true,
+        createdAt: true,
+        category: {
+          select: {
+            name: true,
+          },
+        },
+        product: {
+          select: {
+            title: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+      take: 8,
+    });
+  }
+
   // SELLER → tüm açık RFQ'lar
   async listOpen() {
     return this.prisma.rFQ.findMany({
