@@ -129,9 +129,12 @@ model Company {
   taxNumber            String?
   verified             Boolean       @default(false)
   taxOffice            String?
-  email                String?
-  phone                String?
-  address              Json?
+  email                       String?
+  phone                       String?
+  phoneVerified               Boolean   @default(false)
+  phoneVerificationCode       String?
+  phoneVerificationExpiresAt  DateTime?
+  address                     Json?
   status               CompanyStatus @default(PENDING)
   role                 Role          @default(BUYER)
   iyzicoSubMerchantKey String?

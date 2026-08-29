@@ -79,6 +79,14 @@ export class AuthService {
       );
     }
 
+    const normalizedPhone = String(phone).replace(/\D/g, '');
+
+    if (!/^05\d{9}$/.test(normalizedPhone)) {
+      throw new BadRequestException(
+        'Telefon numarası 05XXXXXXXXX formatında 11 haneli olmalıdır',
+      );
+    }
+
     const existingUser = await this.prisma.user.findUnique({
       where: { email },
     });
@@ -94,7 +102,7 @@ export class AuthService {
         name: companyName,
         role,
         email,
-        phone: phone.trim(),
+        phone: normalizedPhone,
         city: city || null,
         taxNumber: taxNumber || null,
         taxOffice: taxOffice || null,
