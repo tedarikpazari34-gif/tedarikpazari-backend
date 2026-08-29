@@ -242,6 +242,31 @@ export class AdminService {
     });
   }
 
+  async listProductReports() {
+    return this.prisma.productReport.findMany({
+      where: {
+        status: 'OPEN',
+      },
+      include: {
+        product: {
+          include: {
+            category: true,
+          },
+        },
+        reporter: {
+          select: {
+            id: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+  }
+
   async listPendingProducts() {
     return this.prisma.product.findMany({
       where: {

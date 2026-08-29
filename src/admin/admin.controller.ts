@@ -127,6 +127,14 @@ export class AdminController {
   }
 
   @UseGuards(JwtAuthGuard, AdminGuard)
+  @Get('product-reports')
+  @ApiOperation({ summary: 'List reported products (ADMIN)' })
+  listProductReports(@Req() req: any) {
+    this.checkAdmin(req);
+    return this.adminService.listProductReports();
+  }
+
+  @UseGuards(JwtAuthGuard, AdminGuard)
   @Get('products/pending')
   @ApiOperation({ summary: 'List pending products (ADMIN)' })
   listPendingProducts(@Req() req: any) {
