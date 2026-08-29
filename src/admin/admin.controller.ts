@@ -109,6 +109,23 @@ export class AdminController {
     );
   }
 
+
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Get('products')
+  @ApiOperation({ summary: 'List all products (ADMIN)' })
+  listAllProducts(@Req() req: any) {
+    this.checkAdmin(req);
+    return this.adminService.listAllProducts();
+  }
+
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Post('products/:id/deactivate')
+  @ApiOperation({ summary: 'Deactivate product (ADMIN)' })
+  deactivateProduct(@Req() req: any, @Param('id') productId: string) {
+    this.checkAdmin(req);
+    return this.adminService.deactivateProduct(productId);
+  }
+
   @UseGuards(JwtAuthGuard, AdminGuard)
   @Get('products/pending')
   @ApiOperation({ summary: 'List pending products (ADMIN)' })

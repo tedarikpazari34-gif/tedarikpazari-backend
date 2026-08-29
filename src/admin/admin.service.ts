@@ -207,6 +207,41 @@ export class AdminService {
     });
   }
 
+
+  async listAllProducts() {
+    return this.prisma.product.findMany({
+      include: {
+        seller: true,
+        category: true,
+        images: {
+          orderBy: {
+            sortOrder: 'asc',
+          },
+        },
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+  }
+
+  async deactivateProduct(productId: string) {
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+    });
+
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    return this.prisma.product.update({
+      where: { id: productId },
+      data: {
+        isActive: false,
+      },
+    });
+  }
+
   async listPendingProducts() {
     return this.prisma.product.findMany({
       where: {
