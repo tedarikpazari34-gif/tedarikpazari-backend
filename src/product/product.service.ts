@@ -263,6 +263,50 @@ export class ProductService {
     return product;
   }
 
+  async reportProduct(
+    user: any,
+    productId: string,
+    body: { reason: string; note?: string },
+  ) {
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+      select: {
+        id: true,
+        sellerId: true,
+      },
+    });
+
+    if (!product) {
+      throw new NotFoundException('Ürün bulunamadı');
+    }
+
+    if (product.sellerId === user.companyId) {
+      throw new ForbiddenException('Kendi ürününüzü bildiremezsiniz');
+    }
+
+    const reason = body?.reason?.trim();
+
+    if (!reason) {
+      throw new BadRequestException('Bildirim nedeni zorunludur');
+    }
+
+    return this.prisma.productReport.create({
+      data: {
+        productId,
+        reporterId: user.id,
+        reason,
+        note: body?.note?.trim() || null,
+      },
+      select: {
+        id: true,
+        reason: true,
+        note: true,
+        status: true,
+        createdAt: true,
+      },
+    });
+  }
+
   async create(user: any, body: CreateProductDto) {
     if (user.role !== Role.SELLER) {
       throw new ForbiddenException('Sadece SELLER ürün ekleyebilir');

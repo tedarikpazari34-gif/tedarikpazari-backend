@@ -209,6 +209,7 @@ model User {
   notifications     Notification[]
   favorites         Favorite[]
   pushSubscriptions PushSubscription[]
+  productReports ProductReport[]
 }
 
 model PushSubscription {
@@ -272,6 +273,7 @@ model Product {
   images    ProductImage[]
   rfqs      RFQ[]
   favorites Favorite[]
+  reports   ProductReport[]
 
   @@index([sellerId])
   @@index([categoryId])
@@ -290,6 +292,25 @@ model Favorite {
   @@unique([userId, productId])
   @@index([userId])
   @@index([productId])
+}
+
+
+model ProductReport {
+  id         String   @id @default(cuid())
+  productId  String
+  reporterId String?
+  reason     String
+  note       String?
+  status     String   @default("OPEN")
+  createdAt  DateTime @default(now())
+  resolvedAt DateTime?
+
+  product  Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  reporter User?   @relation(fields: [reporterId], references: [id], onDelete: SetNull)
+
+  @@index([productId])
+  @@index([reporterId])
+  @@index([status])
 }
 
 model ProductImage {

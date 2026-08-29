@@ -117,6 +117,17 @@ export class ProductController {
     return this.productService.listPending(req.user);
   }
 
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/report')
+  reportProduct(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Body() body: { reason: string; note?: string },
+  ) {
+    return this.productService.reportProduct(req.user, id, body);
+  }
+
   @Get(':id')
   getOne(@Param('id') id: string) {
     return this.productService.getOne(id);
