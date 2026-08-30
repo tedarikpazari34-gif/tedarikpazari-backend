@@ -199,9 +199,12 @@ model CompanyWallet {
 
 model User {
   id        String   @id @default(cuid())
-  email     String   @unique
-  password  String
-  role      Role     @default(BUYER)
+  email                      String   @unique
+  emailVerified              Boolean  @default(false)
+  emailVerificationToken     String?
+  emailVerificationExpiresAt DateTime?
+  password                   String
+  role                       Role     @default(BUYER)
   companyId String
   createdAt DateTime @default(now())
 

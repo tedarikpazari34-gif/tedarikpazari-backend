@@ -17,6 +17,12 @@ export class AuthController {
     return this.authService.signup(dto);
   }
 
+  @Get('verify-email')
+  @ApiOperation({ summary: 'Verify email address' })
+  verifyEmail(@Req() req: any) {
+    return this.authService.verifyEmail(req.query?.token);
+  }
+
   @Post('login')
   @ApiOperation({ summary: 'Login' })
   @ApiBody({ type: LoginDto })

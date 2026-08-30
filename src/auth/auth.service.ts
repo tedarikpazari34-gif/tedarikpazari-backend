@@ -46,6 +46,43 @@ export class AuthService {
     return true;
   }
 
+  async verifyEmail(token?: string) {
+    if (!token) {
+      throw new BadRequestException('Doğrulama tokenı eksik');
+    }
+
+    const user = await this.prisma.user.findFirst({
+      where: {
+        emailVerificationToken: token,
+      },
+    });
+
+    if (!user) {
+      throw new BadRequestException('Doğrulama bağlantısı geçersiz');
+    }
+
+    if (
+      !user.emailVerificationExpiresAt ||
+      user.emailVerificationExpiresAt.getTime() < Date.now()
+    ) {
+      throw new BadRequestException('Doğrulama bağlantısının süresi dolmuş');
+    }
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        emailVerified: true,
+        emailVerificationToken: null,
+        emailVerificationExpiresAt: null,
+      },
+    });
+
+    return {
+      message: 'E-posta adresiniz doğrulandı',
+      emailVerified: true,
+    };
+  }
+
   async signup(data: any) {
     const {
       companyName,
@@ -137,6 +174,47 @@ export class AuthService {
         company: true,
       },
     });
+
+    const verificationToken =
+      Math.random().toString(36).slice(2) +
+      Math.random().toString(36).slice(2);
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        emailVerificationToken: verificationToken,
+        emailVerificationExpiresAt: new Date(
+          Date.now() + 24 * 60 * 60 * 1000,
+        ),
+      },
+    });
+
+    try {
+      const verificationUrl =
+        `https://tedarikpazarı.com/verify-email?token=${verificationToken}`;
+
+      await this.mailService.sendMail({
+        to: user.email,
+        subject: 'Tedarik Pazarı - E-posta adresinizi doğrulayın',
+        text:
+          `Tedarik Pazarı hesabınızı doğrulamak için bağlantıyı açın: ${verificationUrl}`,
+        html: `
+          <div style="font-family:Arial,sans-serif;line-height:1.6">
+            <h2>E-posta adresinizi doğrulayın</h2>
+            <p>Tedarik Pazarı hesabınızı tamamlamak için aşağıdaki bağlantıya tıklayın.</p>
+            <p>
+              <a href="${verificationUrl}">
+                E-posta adresimi doğrula
+              </a>
+            </p>
+            <p>Bu bağlantı 24 saat geçerlidir.</p>
+            <p>Tedarik Pazarı</p>
+          </div>
+        `,
+      });
+    } catch (error) {
+      console.error('E-posta doğrulama mesajı gönderilemedi:', error);
+    }
 
     // Bildirim hatası kullanıcı kaydını bozmasın.
     try {
