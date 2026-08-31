@@ -1,3 +1,4 @@
+import * as crypto from 'crypto';
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { JwtService } from '@nestjs/jwt';
@@ -175,9 +176,7 @@ export class AuthService {
       },
     });
 
-    const verificationToken =
-      Math.random().toString(36).slice(2) +
-      Math.random().toString(36).slice(2);
+    const verificationToken = crypto.randomBytes(32).toString('hex');
 
     await this.prisma.user.update({
       where: { id: user.id },
