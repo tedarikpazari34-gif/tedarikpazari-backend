@@ -391,6 +391,63 @@ export class AuthService {
     }
   }
 
+  async resendVerificationEmail(email?: string) {
+    if (!email?.trim()) {
+      throw new BadRequestException('E-posta adresi zorunludur');
+    }
+
+    const normalizedEmail = email.trim();
+
+    const user = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    const genericResponse = {
+      message:
+        'Hesap mevcut ve doğrulanmamışsa doğrulama e-postası gönderildi.',
+    };
+
+    if (!user || user.emailVerified) {
+      return genericResponse;
+    }
+
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        emailVerificationToken: verificationToken,
+        emailVerificationExpiresAt: new Date(
+          Date.now() + 24 * 60 * 60 * 1000,
+        ),
+      },
+    });
+
+    const verificationUrl =
+      `https://tedarikpazarı.com/verify-email?token=${verificationToken}`;
+
+    await this.mailService.sendMail({
+      to: user.email,
+      subject: 'Tedarik Pazarı - E-posta adresinizi doğrulayın',
+      text:
+        `Tedarik Pazarı hesabınızı doğrulamak için bağlantıyı açın: ${verificationUrl}`,
+      html: `
+        <div style="font-family:Arial,sans-serif;line-height:1.6">
+          <h2>E-posta adresinizi doğrulayın</h2>
+          <p>Tedarik Pazarı hesabınızı doğrulamak için aşağıdaki bağlantıya tıklayın.</p>
+          <p>
+            <a href="${verificationUrl}">
+              E-posta adresimi doğrula
+            </a>
+          </p>
+          <p>Bu bağlantı 24 saat geçerlidir.</p>
+        </div>
+      `,
+    });
+
+    return genericResponse;
+  }
+
   async login(data: any) {
     const { email, password } = data;
 

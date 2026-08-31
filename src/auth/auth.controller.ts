@@ -23,6 +23,12 @@ export class AuthController {
     return this.authService.verifyEmail(req.query?.token);
   }
 
+  @Post('resend-verification')
+  @ApiOperation({ summary: 'Resend email verification' })
+  resendVerification(@Body() body: { email: string }) {
+    return this.authService.resendVerificationEmail(body?.email);
+  }
+
   @Post('login')
   @ApiOperation({ summary: 'Login' })
   @ApiBody({ type: LoginDto })
