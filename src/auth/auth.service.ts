@@ -296,6 +296,7 @@ export class AuthService {
         companyId: user.companyId,
         role: user.company.role,
         companyStatus: user.company.status,
+        emailVerified: user.emailVerified,
       },
     };
   }
@@ -423,6 +424,7 @@ export class AuthService {
       companyId: user.companyId,
       role: user.company.role,
       companyStatus: user.company.status,
+      emailVerified: user.emailVerified,
     };
 
     const token = await this.jwt.signAsync(payload);
