@@ -95,6 +95,7 @@ export class AuthService {
       phone,
       companyType,
       category,
+      categories,
       city,
       district,
       taxNumber,
@@ -149,6 +150,11 @@ export class AuthService {
           district: district || '',
           companyType: companyType || '',
           category: category || '',
+          categories: Array.isArray(categories)
+            ? categories.slice(0, 3)
+            : category
+              ? [category]
+              : [],
           fullName: fullName.trim(),
         },
       },

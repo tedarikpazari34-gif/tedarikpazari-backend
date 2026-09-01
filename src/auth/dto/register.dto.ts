@@ -45,6 +45,10 @@ export class RegisterDto {
   @IsString()
   category?: string;
 
+  @ApiPropertyOptional({ type: [String] })
+  @IsOptional()
+  categories?: string[];
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
