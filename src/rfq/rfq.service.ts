@@ -217,7 +217,6 @@ export class RfqService {
       include: {
         product: true,
         category: true,
-        buyer: true,
         quotes: {
           include: {
             seller: true,
@@ -356,7 +355,6 @@ export class RfqService {
       },
       include: {
         product: true,
-        buyer: true,
         quotes: {
           include: {
             seller: true,
@@ -422,7 +420,6 @@ export class RfqService {
       include: {
         product: true,
         category: true,
-        buyer: true,
         quotes: {
           include: {
             seller: true,
