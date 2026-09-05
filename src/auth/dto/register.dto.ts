@@ -49,6 +49,11 @@ export class RegisterDto {
   @IsOptional()
   categories?: string[];
 
+  @ApiPropertyOptional({ example: 'Türkiye' })
+  @IsOptional()
+  @IsString()
+  country?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

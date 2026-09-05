@@ -96,6 +96,7 @@ export class AuthService {
       companyType,
       category,
       categories,
+      country,
       city,
       district,
       taxNumber,
@@ -118,12 +119,30 @@ export class AuthService {
       );
     }
 
-    const normalizedPhone = String(phone).replace(/\D/g, '');
+    const selectedCountry = country?.trim() || 'Türkiye';
+    const rawPhone = String(phone).trim();
+    const phoneDigits = rawPhone.replace(/\D/g, '');
 
-    if (!/^05\d{9}$/.test(normalizedPhone)) {
-      throw new BadRequestException(
-        'Telefon numarası 05XXXXXXXXX formatında 11 haneli olmalıdır',
-      );
+    let normalizedPhone: string;
+
+    if (selectedCountry === 'Türkiye') {
+      if (!/^05\d{9}$/.test(phoneDigits) && !/^905\d{9}$/.test(phoneDigits)) {
+        throw new BadRequestException(
+          'Geçerli bir Türkiye telefon numarası giriniz',
+        );
+      }
+
+      normalizedPhone = phoneDigits.startsWith('90')
+        ? `+${phoneDigits}`
+        : `+90${phoneDigits.slice(1)}`;
+    } else {
+      if (!rawPhone.startsWith('+') || !/^\d{7,15}$/.test(phoneDigits)) {
+        throw new BadRequestException(
+          'Telefon numarasını ülke koduyla birlikte giriniz (örn. +995...)',
+        );
+      }
+
+      normalizedPhone = `+${phoneDigits}`;
     }
 
     const existingUser = await this.prisma.user.findUnique({
@@ -142,6 +161,7 @@ export class AuthService {
         role,
         email,
         phone: normalizedPhone,
+        country: selectedCountry,
         city: city || null,
         taxNumber: taxNumber || null,
         taxOffice: taxOffice || null,
