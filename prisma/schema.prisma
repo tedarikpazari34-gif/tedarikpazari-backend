@@ -339,9 +339,11 @@ model RFQ {
   buyerId    String
   title      String?
   quantity   Int
-  unitType   String?
-  note       String?
-  status     RFQStatus @default(OPEN)
+  unitType        String?
+  deliveryCountry String?
+  deliveryCity    String?
+  note            String?
+  status          RFQStatus @default(OPEN)
   createdAt  DateTime  @default(now())
 
   product  Product?  @relation(fields: [productId], references: [id])

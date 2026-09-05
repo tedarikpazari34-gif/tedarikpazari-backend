@@ -81,6 +81,8 @@ export class RfqService {
         buyerId: user.companyId,
         quantity: Number(data.quantity),
         unitType: data?.unitType?.trim() || product?.unitType || null,
+        deliveryCountry: data?.deliveryCountry?.trim() || null,
+        deliveryCity: data?.deliveryCity?.trim() || null,
         note: data.note || null,
         status: 'OPEN',
       },
