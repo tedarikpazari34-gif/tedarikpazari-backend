@@ -329,6 +329,8 @@ export class RfqService {
         title: true,
         quantity: true,
         unitType: true,
+        deliveryCountry: true,
+        deliveryCity: true,
         note: true,
         createdAt: true,
         category: {
