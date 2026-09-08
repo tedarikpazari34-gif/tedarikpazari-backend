@@ -10,10 +10,17 @@ import {
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { OrderService } from './order.service';
 import { ShipOrderDto } from './dto/ship-order.dto';
+import { CreateDirectOrderDto } from './dto/create-direct-order.dto';
 
 @Controller('orders')
 export class OrderController {
   constructor(private readonly orderService: OrderService) {}
+
+  @UseGuards(JwtAuthGuard)
+  @Post('direct')
+  createDirect(@Req() req: any, @Body() body: CreateDirectOrderDto) {
+    return this.orderService.createDirect(req.user, body);
+  }
 
   @UseGuards(JwtAuthGuard)
   @Post('from-quote/:quoteId')

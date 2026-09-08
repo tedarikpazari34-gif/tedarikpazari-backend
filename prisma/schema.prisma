@@ -280,6 +280,7 @@ model Product {
   rfqs      RFQ[]
   favorites Favorite[]
   reports   ProductReport[]
+  orders    Order[]
 
   @@index([sellerId])
   @@index([categoryId])
@@ -383,8 +384,10 @@ model Quote {
 
 model Order {
   id               String  @id @default(cuid())
-  rfqId            String  @unique
-  quoteId          String  @unique
+  rfqId            String? @unique
+  quoteId          String? @unique
+  productId        String?
+  quantity         Int?
   buyerId          String
   sellerId         String
   totalAmount      Decimal
@@ -410,10 +413,11 @@ model Order {
 
   paymentAttempts PaymentAttempt[] @relation("OrderPaymentAttempts")
 
-  rfq    RFQ     @relation(fields: [rfqId], references: [id])
-  quote  Quote   @relation(fields: [quoteId], references: [id])
-  buyer  Company @relation("BuyerOrders", fields: [buyerId], references: [id])
-  seller Company @relation("SellerOrders", fields: [sellerId], references: [id])
+  rfq     RFQ?     @relation(fields: [rfqId], references: [id])
+  quote   Quote?   @relation(fields: [quoteId], references: [id])
+  product Product? @relation(fields: [productId], references: [id])
+  buyer   Company  @relation("BuyerOrders", fields: [buyerId], references: [id])
+  seller  Company  @relation("SellerOrders", fields: [sellerId], references: [id])
 
   payout              Payout?              @relation("OrderPayout")
   disputes            Dispute[]
@@ -429,6 +433,7 @@ model Order {
 
   @@index([buyerId])
   @@index([sellerId])
+  @@index([productId])
   @@index([status])
 }
 

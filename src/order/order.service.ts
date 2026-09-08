@@ -10,6 +10,7 @@ import { LedgerType, OrderStatus, Prisma, Role } from '@prisma/client';
 import { NotificationService } from '../notification/notification.service';
 import { MailService } from '../mail/mail.service';
 import { ShipOrderDto } from './dto/ship-order.dto';
+import { CreateDirectOrderDto } from './dto/create-direct-order.dto';
 
 @Injectable()
 export class OrderService {
@@ -29,6 +30,88 @@ export class OrderService {
       },
       update: {},
     });
+  }
+
+
+  async createDirect(user: any, body: CreateDirectOrderDto) {
+    if (!user || user.role !== Role.BUYER) {
+      throw new ForbiddenException('Sadece BUYER sipariş oluşturabilir');
+    }
+
+    const product = await this.prisma.product.findUnique({
+      where: { id: body.productId },
+      include: {
+        seller: true,
+      },
+    });
+
+    if (!product) {
+      throw new NotFoundException('Ürün bulunamadı');
+    }
+
+    if (!product.isActive || !product.isApproved) {
+      throw new BadRequestException('Bu ürün satışa açık değil');
+    }
+
+    if (product.sellerId === user.companyId) {
+      throw new BadRequestException('Kendi ürününüzü satın alamazsınız');
+    }
+
+    if (body.quantity < product.moq) {
+      throw new BadRequestException(
+        `Minimum sipariş miktarı ${product.moq} ${product.unitType}`,
+      );
+    }
+
+    const unitPrice = new Prisma.Decimal(product.basePrice);
+    const quantity = new Prisma.Decimal(body.quantity);
+    const totalAmount = unitPrice.mul(quantity);
+
+    if (totalAmount.lte(0)) {
+      throw new BadRequestException('Sipariş tutarı 0 olamaz');
+    }
+
+    const commissionAmount = totalAmount.mul(new Prisma.Decimal(0.05));
+    const escrowAmount = totalAmount;
+    const payoutAmount = totalAmount.minus(commissionAmount);
+
+    const order = await this.prisma.order.create({
+      data: {
+        productId: product.id,
+        quantity: body.quantity,
+        buyerId: user.companyId,
+        sellerId: product.sellerId,
+        totalAmount,
+        commissionAmount,
+        escrowAmount,
+        payoutAmount,
+        status: OrderStatus.PENDING_PAYMENT,
+      },
+      include: {
+        product: true,
+        buyer: true,
+        seller: true,
+      },
+    });
+
+    const sellerUser = await this.prisma.user.findFirst({
+      where: { companyId: product.sellerId },
+    });
+
+    if (sellerUser) {
+      await this.notificationService.createNotification({
+        userId: sellerUser.id,
+        type: 'ORDER',
+        title: 'Yeni Sipariş',
+        message: `${product.title} için ${body.quantity} ${product.unitType} doğrudan sipariş oluşturuldu.`,
+        link: '/seller/orders',
+      });
+    }
+
+    return {
+      message: 'Sipariş oluşturuldu',
+      order,
+    };
   }
 
   async createFromQuote(user: any, quoteId: string) {
@@ -156,6 +239,7 @@ export class OrderService {
           product: true,
         },
       },
+      product: true,
       quote: true,
       buyer: true,
       seller: true,
@@ -200,6 +284,7 @@ export class OrderService {
             product: true,
           },
         },
+        product: true,
         quote: true,
         buyer: true,
         seller: true,

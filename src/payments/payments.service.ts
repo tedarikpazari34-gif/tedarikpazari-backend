@@ -52,6 +52,15 @@ export class PaymentsService {
       where: { id: orderId },
       include: {
         rfq: { include: { product: true } },
+        product: {
+          include: {
+            category: {
+              include: {
+                parent: true,
+              },
+            },
+          },
+        },
         buyer: true,
         seller: true,
       },
@@ -114,9 +123,19 @@ export class PaymentsService {
 
       basketItems: [
         {
-          id: order.rfq?.product?.id ?? order.id,
-          name: order.rfq?.product?.title ?? 'Order Item',
-          category1: 'B2B',
+          id: order.product?.id ?? order.rfq?.product?.id ?? order.id,
+          name:
+            order.product?.title ??
+            order.rfq?.product?.title ??
+            'Order Item',
+          category1:
+            order.product?.category?.parent?.name ??
+            order.product?.category?.name ??
+            'B2B',
+          category2:
+            order.product?.category?.parent
+              ? order.product.category.name
+              : undefined,
           itemType: 'PHYSICAL',
           price: order.totalAmount.toString(),
         },
