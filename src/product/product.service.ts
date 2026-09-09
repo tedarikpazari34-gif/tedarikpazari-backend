@@ -337,6 +337,8 @@ export class ProductService {
         title: body.title,
         description: body.description || null,
         imageUrl: body.imageUrl || null,
+        country: body.country || null,
+        city: body.city || null,
         unitType: body.unitType,
         moq: body.moq,
         basePrice: body.basePrice,

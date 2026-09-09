@@ -256,6 +256,8 @@ model Product {
   title       String
   description String?
   imageUrl    String?
+  country     String?
+  city        String?
 
   unitType  String
   moq       Int
