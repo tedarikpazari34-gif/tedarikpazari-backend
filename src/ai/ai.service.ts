@@ -142,4 +142,64 @@ Sadece geçerli JSON döndür:
       throw new BadRequestException('AI yanıtı işlenemedi');
     }
   }
+
+  async createProductDraft(prompt: string) {
+    if (!prompt?.trim()) {
+      throw new BadRequestException('Ürün bilgisi boş olamaz');
+    }
+
+    const response = await this.openai.responses.create({
+      model: 'gpt-5-mini',
+      input: [
+        {
+          role: 'system',
+          content:
+            'Sen Nex Tedarik Pazarı için B2B ürün listeleme asistanısın. Satıcının kısa ürün bilgisini profesyonel bir toptan satış ürün taslağına dönüştür. Türkçe yaz. Bilmediğin marka, stok miktarı, sertifika, teknik özellik, menşei veya fiyat bilgisini kesinlikle uydurma. Fiyat önerme. Ürün için kısa ve satışa uygun bir başlık, en uygun genel ticari kategori, satış birimi, makul minimum sipariş miktarı (MOQ), yalnızca öneri niteliğinde hazırlık/teslim süresi ve kısa ürün açıklaması oluştur. Açıklama en fazla 4-6 kısa cümle olsun. Kullanıcının verdiği bilgileri koru; vermediği özellikleri gerçekmiş gibi ekleme.',
+        },
+        {
+          role: 'user',
+          content: `Şu ürünü Nex Tedarik Pazarı'nda satışa uygun şekilde yapılandır:
+
+${prompt}
+
+Sadece geçerli JSON döndür:
+{
+  "title": "kısa ürün adı",
+  "categoryName": "uygun kategori adı",
+  "unitType": "Adet",
+  "moq": 1,
+  "leadTimeDays": 3,
+  "description": "kısa profesyonel ürün açıklaması"
+}`,
+        },
+      ],
+    });
+
+    const text = response.output_text?.trim();
+
+    if (!text) {
+      throw new BadRequestException('AI yanıt üretemedi');
+    }
+
+    try {
+      const cleaned = text
+        .replace(/^```json\s*/i, '')
+        .replace(/^```\s*/i, '')
+        .replace(/\s*```$/i, '');
+
+      const parsed = JSON.parse(cleaned);
+
+      return {
+        title: String(parsed.title || '').trim(),
+        categoryName: String(parsed.categoryName || '').trim(),
+        unitType: String(parsed.unitType || 'Adet').trim(),
+        moq: Math.max(1, Number(parsed.moq) || 1),
+        leadTimeDays: Math.max(1, Number(parsed.leadTimeDays) || 3),
+        description: String(parsed.description || '').trim(),
+      };
+    } catch {
+      throw new BadRequestException('AI yanıtı işlenemedi');
+    }
+  }
+
 }

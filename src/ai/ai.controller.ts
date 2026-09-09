@@ -28,4 +28,12 @@ export class AiController {
   ) {
     return this.aiService.createRfqDraft(body.prompt);
   }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('product-draft')
+  createProductDraft(
+    @Body() body: { prompt: string },
+  ) {
+    return this.aiService.createProductDraft(body.prompt);
+  }
 }
