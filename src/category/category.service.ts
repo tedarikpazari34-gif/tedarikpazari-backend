@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
+import { normalizeProductLanguage } from '../product/product-language';
+import { AiService } from '../ai/ai.service';
 
 export type CategoryNode = {
   id: string;
@@ -11,57 +13,67 @@ export type CategoryNode = {
 
 @Injectable()
 export class CategoryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly aiService: AiService,
+  ) {}
 
-  async list() {
-    return this.prisma.category.findMany({
+  async list(lang?: string) {
+    const language = normalizeProductLanguage(lang);
+
+    const rows = await this.prisma.category.findMany({
+      include: {
+        translations: {
+          where: { language },
+          take: 1,
+        },
+      },
       orderBy: { name: 'asc' },
     });
+
+    return rows.map(({ translations, ...category }) => ({
+      ...category,
+      name: translations[0]?.name || category.name,
+    }));
   }
 
-    async tree(rootId?: string) {
-  const rows = await this.prisma.category.findMany({
-    orderBy: { name: 'asc' },
-  });
+  async tree(rootId?: string, lang?: string) {
+    const language = normalizeProductLanguage(lang);
 
-  console.log(
-    'CATEGORY ROWS:',
-    rows.map((c) => ({
-      id: c.id,
-      name: c.name,
-      parentId: c.parentId,
-    })),
-  );
+    const rows = await this.prisma.category.findMany({
+      include: {
+        translations: {
+          where: { language },
+          take: 1,
+        },
+      },
+      orderBy: { name: 'asc' },
+    });
 
-  const map = new Map<string, CategoryNode>();
+    const map = new Map<string, CategoryNode>();
 
-  for (const c of rows) {
-    map.set(c.id, { ...c, children: [] });
-  }
-
-  const roots: CategoryNode[] = [];
-
-  for (const node of map.values()) {
-    if (node.parentId && map.has(node.parentId)) {
-      map.get(node.parentId)!.children.push(node);
-    } else {
-      roots.push(node);
+    for (const { translations, ...category } of rows) {
+      map.set(category.id, {
+        ...category,
+        name: translations[0]?.name || category.name,
+        children: [],
+      });
     }
+
+    const roots: CategoryNode[] = [];
+
+    for (const node of map.values()) {
+      if (node.parentId && map.has(node.parentId)) {
+        map.get(node.parentId)!.children.push(node);
+      } else {
+        roots.push(node);
+      }
+    }
+
+    if (rootId) {
+      return map.get(rootId) ?? null;
+    }
+
+    return roots;
   }
-
-  console.log(
-    'CATEGORY ROOTS:',
-    roots.map((r) => ({
-      id: r.id,
-      name: r.name,
-      childrenCount: r.children.length,
-    })),
-  );
-
-  if (rootId) {
-    return map.get(rootId) ?? null;
-  }
-
-  return roots;
-}
 }

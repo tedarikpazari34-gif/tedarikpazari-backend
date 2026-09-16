@@ -32,8 +32,8 @@ export class AiController {
   @UseGuards(JwtAuthGuard)
   @Post('product-draft')
   createProductDraft(
-    @Body() body: { prompt: string },
+    @Body() body: { prompt: string; language?: string },
   ) {
-    return this.aiService.createProductDraft(body.prompt);
+    return this.aiService.createProductDraft(body.prompt, body.language);
   }
 }

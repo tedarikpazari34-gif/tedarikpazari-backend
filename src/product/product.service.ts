@@ -8,10 +8,43 @@ import { PrismaService } from '../prisma.service';
 import { CompanyStatus, Role } from '@prisma/client';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import {
+  normalizeProductLanguage,
+  SUPPORTED_PRODUCT_LANGUAGES,
+} from './product-language';
+import { AiService } from '../ai/ai.service';
 
 @Injectable()
 export class ProductService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly aiService: AiService,
+  ) {}
+
+  private applyTranslation(product: any) {
+    const productTranslation = product.translations?.[0];
+    const categoryTranslation = product.category?.translations?.[0];
+
+    const {
+      translations: _productTranslations,
+      category,
+      ...rest
+    } = product;
+
+    return {
+      ...rest,
+      title: productTranslation?.title || product.title,
+      description:
+        productTranslation?.description ?? product.description,
+      category: category
+        ? {
+            ...category,
+            name: categoryTranslation?.name || category.name,
+            translations: undefined,
+          }
+        : category,
+    };
+  }
 
   async list(query: {
   categoryId?: string;
@@ -23,6 +56,7 @@ export class ProductService {
   maxMoq?: string;
   city?: string;
   verified?: string;
+  lang?: string;
 }) {
   const {
     categoryId,
@@ -34,7 +68,10 @@ export class ProductService {
     maxMoq,
     city,
     verified,
+    lang,
   } = query;
+
+    const language = normalizeProductLanguage(lang);
 
     let categoryFilter = {};
 
@@ -57,16 +94,42 @@ export class ProductService {
       };
     }
 
-    return this.prisma.product.findMany({
+    const products = await this.prisma.product.findMany({
       where: {
         isActive: true,
         isApproved: true,
         ...categoryFilter,
         ...(q
           ? {
-              title: {
-                contains: q.toLocaleLowerCase('tr-TR'),
-              },
+              OR: [
+                {
+                  title: {
+                    contains: q,
+                    mode: 'insensitive',
+                  },
+                },
+                {
+                  translations: {
+                    some: {
+                      language,
+                      OR: [
+                        {
+                          title: {
+                            contains: q,
+                            mode: 'insensitive',
+                          },
+                        },
+                        {
+                          description: {
+                            contains: q,
+                            mode: 'insensitive',
+                          },
+                        },
+                      ],
+                    },
+                  },
+                },
+              ],
             }
           : {}),
         ...(sellerId ? { sellerId } : {}),
@@ -114,16 +177,31 @@ export class ProductService {
         isApproved: true,
         createdAt: true,
         updatedAt: true,
-        category: true,
+        translations: {
+          where: { language },
+          take: 1,
+        },
+        category: {
+          include: {
+            translations: {
+              where: { language },
+              take: 1,
+            },
+          },
+        },
         images: {
           orderBy: { sortOrder: 'asc' },
         },
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    return products.map((product) => this.applyTranslation(product));
   }
 
-  async listByCategory(categoryId: string) {
+  async listByCategory(categoryId: string, lang?: string) {
+    const language = normalizeProductLanguage(lang);
+
     const childCategories = await this.prisma.category.findMany({
       where: {
         parentId: categoryId,
@@ -135,7 +213,7 @@ export class ProductService {
 
     const categoryIds = [categoryId, ...childCategories.map((c) => c.id)];
 
-    return this.prisma.product.findMany({
+    const products = await this.prisma.product.findMany({
       where: {
         categoryId: {
           in: categoryIds,
@@ -162,13 +240,26 @@ export class ProductService {
         isApproved: true,
         createdAt: true,
         updatedAt: true,
-        category: true,
+        translations: {
+          where: { language },
+          take: 1,
+        },
+        category: {
+          include: {
+            translations: {
+              where: { language },
+              take: 1,
+            },
+          },
+        },
         images: {
           orderBy: { sortOrder: 'asc' },
         },
       },
       orderBy: { createdAt: 'desc' },
     });
+
+    return products.map((product) => this.applyTranslation(product));
   }
 
   async listMine(user: any) {
@@ -229,7 +320,9 @@ export class ProductService {
     });
   }
 
-  async getOne(id: string) {
+  async getOne(id: string, lang?: string) {
+    const language = normalizeProductLanguage(lang);
+
     const product = await this.prisma.product.findFirst({
       where: {
         id,
@@ -255,7 +348,18 @@ export class ProductService {
         isApproved: true,
         createdAt: true,
         updatedAt: true,
-        category: true,
+        translations: {
+          where: { language },
+          take: 1,
+        },
+        category: {
+          include: {
+            translations: {
+              where: { language },
+              take: 1,
+            },
+          },
+        },
         images: {
           orderBy: { sortOrder: 'asc' },
         },
@@ -266,7 +370,7 @@ export class ProductService {
       throw new NotFoundException('Ürün bulunamadı');
     }
 
-    return product;
+    return this.applyTranslation(product);
   }
 
   async reportProduct(
@@ -313,6 +417,53 @@ export class ProductService {
     });
   }
 
+  private async generateProductTranslations(product: {
+    id: string;
+    title: string;
+    description: string | null;
+    sourceLanguage: string;
+  }) {
+    const sourceLanguage = normalizeProductLanguage(product.sourceLanguage);
+
+    const targetLanguages = SUPPORTED_PRODUCT_LANGUAGES.filter(
+      (language) => language !== sourceLanguage,
+    );
+
+    await Promise.allSettled(
+      targetLanguages.map(async (targetLanguage) => {
+        const translated = await this.aiService.translateProductContent({
+          sourceLanguage,
+          targetLanguage,
+          title: product.title,
+          description: product.description,
+        });
+
+        if (!translated.title) {
+          return;
+        }
+
+        await this.prisma.productTranslation.upsert({
+          where: {
+            productId_language: {
+              productId: product.id,
+              language: targetLanguage,
+            },
+          },
+          update: {
+            title: translated.title,
+            description: translated.description,
+          },
+          create: {
+            productId: product.id,
+            language: targetLanguage,
+            title: translated.title,
+            description: translated.description,
+          },
+        });
+      }),
+    );
+  }
+
   async create(user: any, body: CreateProductDto) {
     if (user.role !== Role.SELLER) {
       throw new ForbiddenException('Sadece SELLER ürün ekleyebilir');
@@ -336,12 +487,13 @@ export class ProductService {
       );
     }
 
-    return this.prisma.product.create({
+    const product = await this.prisma.product.create({
       data: {
         sellerId: user.companyId,
         categoryId: body.categoryId || null,
         title: body.title,
         description: body.description || null,
+        sourceLanguage: normalizeProductLanguage(body.sourceLanguage),
         imageUrl: body.imageUrl || null,
         country: body.country || null,
         city: body.city || null,
@@ -374,6 +526,15 @@ export class ProductService {
         },
       },
     });
+
+    await this.generateProductTranslations({
+      id: product.id,
+      title: product.title,
+      description: product.description,
+      sourceLanguage: product.sourceLanguage,
+    });
+
+    return product;
   }
 
   async addImages(user: any, id: string, body: any) {
@@ -460,7 +621,10 @@ export class ProductService {
       throw new ForbiddenException('Bu ürün size ait değil');
     }
 
-    return this.prisma.product.update({
+    const contentChanged =
+      body.title !== undefined || body.description !== undefined;
+
+    const updatedProduct = await this.prisma.product.update({
       where: { id },
       data: {
         ...(body.categoryId !== undefined
@@ -509,6 +673,17 @@ export class ProductService {
         },
       },
     });
+
+    if (contentChanged) {
+      await this.generateProductTranslations({
+        id: updatedProduct.id,
+        title: updatedProduct.title,
+        description: updatedProduct.description,
+        sourceLanguage: updatedProduct.sourceLanguage,
+      });
+    }
+
+    return updatedProduct;
   }
 
   async approve(user: any, id: string) {

@@ -21,6 +21,10 @@ export class CreateProductDto {
 
   @IsOptional()
   @IsString()
+  sourceLanguage?: string;
+
+  @IsOptional()
+  @IsString()
   country?: string;
 
   @IsOptional()

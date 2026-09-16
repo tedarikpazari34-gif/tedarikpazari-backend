@@ -5,6 +5,80 @@ import OpenAI from 'openai';
 export class AiService {
   private readonly openai: OpenAI;
 
+  private normalizeUnitType(value?: string): string {
+    const unit = String(value || '')
+      .trim()
+      .toLocaleLowerCase('tr-TR');
+
+    const aliases: Record<string, string> = {
+      adet: 'adet',
+      piece: 'adet',
+      pieces: 'adet',
+      unit: 'adet',
+      units: 'adet',
+      'stück': 'adet',
+      штука: 'adet',
+      قطعة: 'adet',
+      dona: 'adet',
+      'ცალი': 'adet',
+
+      koli: 'koli',
+      kutu: 'koli',
+      box: 'koli',
+      carton: 'koli',
+      karton: 'koli',
+      коробка: 'koli',
+      كرتون: 'koli',
+      'კოლოფი': 'koli',
+
+      paket: 'paket',
+      package: 'paket',
+      pack: 'paket',
+      packung: 'paket',
+      упаковка: 'paket',
+      عبوة: 'paket',
+      qadoq: 'paket',
+      'შეფუთვა': 'paket',
+
+      kg: 'kg',
+      kilogram: 'kg',
+      kilogramm: 'kg',
+      килограмм: 'kg',
+      كيلوغرام: 'kg',
+      'კილოგრამი': 'kg',
+
+      ton: 'ton',
+      tonne: 'ton',
+      tonna: 'ton',
+      тонна: 'ton',
+      طن: 'ton',
+      'ტონა': 'ton',
+
+      litre: 'litre',
+      liter: 'litre',
+      litr: 'litre',
+      литр: 'litre',
+      لتر: 'litre',
+      'ლიტრი': 'litre',
+
+      metre: 'metre',
+      meter: 'metre',
+      metr: 'metre',
+      метр: 'metre',
+      متر: 'metre',
+      'მეტრი': 'metre',
+
+      palet: 'palet',
+      pallet: 'palet',
+      palette: 'palet',
+      палета: 'palet',
+      'منصة نقالة': 'palet',
+      'პალეტი': 'palet',
+    };
+
+    return aliases[unit] || 'adet';
+  }
+
   constructor() {
     const apiKey = process.env.OPENAI_API_KEY;
 
@@ -143,30 +217,50 @@ Sadece geçerli JSON döndür:
     }
   }
 
-  async createProductDraft(prompt: string) {
+  async createProductDraft(prompt: string, language?: string) {
     if (!prompt?.trim()) {
       throw new BadRequestException('Ürün bilgisi boş olamaz');
     }
+
+    const normalizedLanguage = (language || 'tr').toLowerCase().split('-')[0];
+
+    const languageMap: Record<string, string> = {
+      tr: 'Türkçe',
+      en: 'English',
+      ka: 'ქართული',
+      ru: 'Русский',
+      de: 'Deutsch',
+      ar: 'العربية',
+      uz: 'O‘zbekcha',
+    };
+
+    const outputLanguage = languageMap[normalizedLanguage] || 'Türkçe';
 
     const response = await this.openai.responses.create({
       model: 'gpt-5-mini',
       input: [
         {
           role: 'system',
-          content:
-            'Sen Nex Tedarik Pazarı için B2B ürün listeleme asistanısın. Satıcının kısa ürün bilgisini profesyonel bir toptan satış ürün taslağına dönüştür. Türkçe yaz. Bilmediğin marka, stok miktarı, sertifika, teknik özellik, menşei veya fiyat bilgisini kesinlikle uydurma. Fiyat önerme. Ürün için kısa ve satışa uygun bir başlık, en uygun genel ticari kategori, satış birimi, makul minimum sipariş miktarı (MOQ), yalnızca öneri niteliğinde hazırlık/teslim süresi ve kısa ürün açıklaması oluştur. Açıklama en fazla 4-6 kısa cümle olsun. Kullanıcının verdiği bilgileri koru; vermediği özellikleri gerçekmiş gibi ekleme.',
+          content: `Sen Nex Tedarik Pazarı için B2B ürün listeleme asistanısın. Satıcının kısa ürün bilgisini profesyonel bir toptan satış ürün taslağına dönüştür. Yanıt içeriğini ${outputLanguage} dilinde yaz. Bilmediğin marka, stok miktarı, sertifika, teknik özellik, menşei veya fiyat bilgisini kesinlikle uydurma. Fiyat önerme. Ürün için kısa ve satışa uygun bir başlık, en uygun genel ticari kategori, satış birimi, makul minimum sipariş miktarı (MOQ), yalnızca öneri niteliğinde hazırlık/teslim süresi ve kısa ürün açıklaması oluştur. Açıklama en fazla 4-6 kısa cümle olsun. Kullanıcının verdiği bilgileri koru; vermediği özellikleri gerçekmiş gibi ekleme.`,
         },
         {
           role: 'user',
-          content: `Şu ürünü Nex Tedarik Pazarı'nda satışa uygun şekilde yapılandır:
+          content: `Şu ürünü Nex Tedarik Pazarı'nda satışa uygun şekilde yapılandır.
 
+Yanıt dili: ${outputLanguage}
+
+Ürün bilgisi:
 ${prompt}
+
+ÖNEMLİ: unitType alanını yanıt diline çevirme.
+unitType yalnızca şu standart kodlardan biri olmalıdır:
+adet, koli, paket, kg, ton, litre, metre, palet
 
 Sadece geçerli JSON döndür:
 {
   "title": "kısa ürün adı",
   "categoryName": "uygun kategori adı",
-  "unitType": "Adet",
+  "unitType": "adet",
   "moq": 1,
   "leadTimeDays": 3,
   "description": "kısa profesyonel ürün açıklaması"
@@ -192,13 +286,185 @@ Sadece geçerli JSON döndür:
       return {
         title: String(parsed.title || '').trim(),
         categoryName: String(parsed.categoryName || '').trim(),
-        unitType: String(parsed.unitType || 'Adet').trim(),
+        unitType: this.normalizeUnitType(parsed.unitType),
         moq: Math.max(1, Number(parsed.moq) || 1),
         leadTimeDays: Math.max(1, Number(parsed.leadTimeDays) || 3),
         description: String(parsed.description || '').trim(),
       };
     } catch {
       throw new BadRequestException('AI yanıtı işlenemedi');
+    }
+  }
+
+
+  async translateProductContent(input: {
+    sourceLanguage: string;
+    targetLanguage: string;
+    title: string;
+    description?: string | null;
+  }) {
+    const response = await this.openai.responses.create({
+      model: 'gpt-5-mini',
+      input: [
+        {
+          role: 'system',
+          content:
+            'Sen Nex Tedarik Pazarı için profesyonel B2B katalog çevirmenisin. Sana verilen ürün başlığını ve açıklamasını yalnızca hedef dile çevir. Ürünün anlamını, miktarını, ölçüsünü, marka/model adını, teknik kodlarını ve ticari bilgilerini koru. Kullanıcının vermediği hiçbir özellik, sertifika, avantaj, menşei, stok bilgisi veya pazarlama iddiası ekleme. Marka, model, ürün kodu ve özel isimleri gereksiz yere çevirme. Çeviri doğal ve profesyonel olsun. Sadece geçerli JSON döndür.',
+        },
+        {
+          role: 'user',
+          content: `Kaynak dil: ${input.sourceLanguage}
+Hedef dil: ${input.targetLanguage}
+
+Ürün başlığı:
+${input.title}
+
+Ürün açıklaması:
+${input.description || ''}
+
+Sadece şu JSON biçiminde cevap ver:
+{
+  "title": "çevrilmiş ürün başlığı",
+  "description": "çevrilmiş ürün açıklaması"
+}`,
+        },
+      ],
+    });
+
+    const text = response.output_text?.trim();
+
+    if (!text) {
+      throw new BadRequestException('Ürün çevirisi üretilemedi');
+    }
+
+    try {
+      const cleaned = text
+        .replace(/^```json\s*/i, '')
+        .replace(/^```\s*/i, '')
+        .replace(/\s*```$/i, '');
+
+      const parsed = JSON.parse(cleaned);
+
+      return {
+        title: String(parsed.title || '').trim(),
+        description: String(parsed.description || '').trim() || null,
+      };
+    } catch {
+      throw new BadRequestException('Ürün çevirisi işlenemedi');
+    }
+  }
+
+  async translateCategoryBatch(input: {
+    sourceLanguage: string;
+    targetLanguage: string;
+    categories: Array<{ id: string; name: string }>;
+  }) {
+    if (!input.categories.length) {
+      return [];
+    }
+
+    const response = await this.openai.responses.create({
+      model: 'gpt-5-mini',
+      input: [
+        {
+          role: 'system',
+          content:
+            'Sen Nex Tedarik Pazarı için profesyonel B2B kategori çevirmenisin. Verilen kategori listesindeki her kategori adını yalnızca hedef dile çevir. id değerlerini kesinlikle değiştirme. Kategori kapsamını genişletme veya daraltma, yeni özellik ekleme, marka veya özel isimleri gereksiz yere değiştirme. Girdi sırasını ve her id değerini koru. Sadece geçerli JSON döndür.',
+        },
+        {
+          role: 'user',
+          content: `Kaynak dil: ${input.sourceLanguage}
+Hedef dil: ${input.targetLanguage}
+
+Kategoriler:
+${JSON.stringify(input.categories)}
+
+Sadece şu biçimde geçerli JSON döndür:
+{
+  "categories": [
+    { "id": "orijinal-id", "name": "çevrilmiş kategori adı" }
+  ]
+}`,
+        },
+      ],
+    });
+
+    const text = response.output_text?.trim();
+
+    if (!text) {
+      throw new BadRequestException('Kategori toplu çevirisi üretilemedi');
+    }
+
+    try {
+      const cleaned = text
+        .replace(/^```json\s*/i, '')
+        .replace(/^```\s*/i, '')
+        .replace(/\s*```$/i, '');
+
+      const parsed = JSON.parse(cleaned);
+      const categories = Array.isArray(parsed.categories)
+        ? parsed.categories
+        : [];
+
+      return categories
+        .map((item: any) => ({
+          id: String(item.id || '').trim(),
+          name: String(item.name || '').trim(),
+        }))
+        .filter((item: { id: string; name: string }) => item.id && item.name);
+    } catch {
+      throw new BadRequestException('Kategori toplu çevirisi işlenemedi');
+    }
+  }
+
+  async translateCategoryName(input: {
+    sourceLanguage: string;
+    targetLanguage: string;
+    name: string;
+  }) {
+    const response = await this.openai.responses.create({
+      model: 'gpt-5-mini',
+      input: [
+        {
+          role: 'system',
+          content:
+            'Sen Nex Tedarik Pazarı için B2B kategori çevirmenisin. Verilen ticari kategori adını yalnızca hedef dile çevir. Anlamı koru, kategori kapsamını genişletme veya daraltma, yeni kelime ya da özellik uydurma. Marka veya özel isim varsa gereksiz yere değiştirme. Sadece geçerli JSON döndür.',
+        },
+        {
+          role: 'user',
+          content: `Kaynak dil: ${input.sourceLanguage}
+Hedef dil: ${input.targetLanguage}
+
+Kategori:
+${input.name}
+
+Sadece şu JSON biçiminde cevap ver:
+{
+  "name": "çevrilmiş kategori adı"
+}`,
+        },
+      ],
+    });
+
+    const text = response.output_text?.trim();
+
+    if (!text) {
+      throw new BadRequestException('Kategori çevirisi üretilemedi');
+    }
+
+    try {
+      const cleaned = text
+        .replace(/^```json\s*/i, '')
+        .replace(/^```\s*/i, '')
+        .replace(/\s*```$/i, '');
+
+      const parsed = JSON.parse(cleaned);
+
+      return {
+        name: String(parsed.name || '').trim(),
+      };
+    } catch {
+      throw new BadRequestException('Kategori çevirisi işlenemedi');
     }
   }
 

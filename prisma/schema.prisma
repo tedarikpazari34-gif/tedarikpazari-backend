@@ -242,8 +242,9 @@ model Category {
   children  Category[] @relation("CategoryTree")
   createdAt DateTime   @default(now())
 
-  products Product[]
-  rfqs     RFQ[]
+  products     Product[]
+  rfqs         RFQ[]
+  translations CategoryTranslation[]
 
   @@index([parentId])
 }
@@ -253,9 +254,10 @@ model Product {
   sellerId   String
   categoryId String?
 
-  title       String
-  description String?
-  imageUrl    String?
+  title          String
+  description    String?
+  sourceLanguage String @default("tr")
+  imageUrl       String?
   country     String?
   city        String?
 
@@ -278,15 +280,46 @@ model Product {
   seller   Company   @relation(fields: [sellerId], references: [id])
   category Category? @relation(fields: [categoryId], references: [id])
 
-  images    ProductImage[]
-  rfqs      RFQ[]
-  favorites Favorite[]
-  reports   ProductReport[]
-  orders    Order[]
+  images       ProductImage[]
+  rfqs         RFQ[]
+  favorites    Favorite[]
+  reports      ProductReport[]
+  orders       Order[]
+  translations ProductTranslation[]
 
   @@index([sellerId])
   @@index([categoryId])
   @@index([isActive, isApproved])
+}
+
+
+model ProductTranslation {
+  id          String   @id @default(cuid())
+  productId   String
+  language    String
+  title       String
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, language])
+  @@index([language])
+}
+
+model CategoryTranslation {
+  id         String   @id @default(cuid())
+  categoryId String
+  language   String
+  name       String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([categoryId, language])
+  @@index([language])
 }
 
 model Favorite {

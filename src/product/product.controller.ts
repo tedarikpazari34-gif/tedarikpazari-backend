@@ -41,6 +41,7 @@ export class ProductController {
   @ApiQuery({ name: 'maxMoq', required: false })
   @ApiQuery({ name: 'city', required: false })
   @ApiQuery({ name: 'verified', required: false })
+  @ApiQuery({ name: 'lang', required: false })
   @Get()
   list(
     @Query('categoryId') categoryId?: string,
@@ -52,6 +53,7 @@ export class ProductController {
     @Query('maxMoq') maxMoq?: string,
     @Query('city') city?: string,
     @Query('verified') verified?: string,
+    @Query('lang') lang?: string,
   ) {
     return this.productService.list({
       categoryId,
@@ -63,12 +65,17 @@ export class ProductController {
       maxMoq,
       city,
       verified,
+      lang,
     });
   }
 
+  @ApiQuery({ name: 'lang', required: false })
   @Get('category/:categoryId')
-  listByCategory(@Param('categoryId') categoryId: string) {
-    return this.productService.listByCategory(categoryId);
+  listByCategory(
+    @Param('categoryId') categoryId: string,
+    @Query('lang') lang?: string,
+  ) {
+    return this.productService.listByCategory(categoryId, lang);
   }
 
   @ApiBearerAuth()
@@ -128,9 +135,13 @@ export class ProductController {
     return this.productService.reportProduct(req.user, id, body);
   }
 
+  @ApiQuery({ name: 'lang', required: false })
   @Get(':id')
-  getOne(@Param('id') id: string) {
-    return this.productService.getOne(id);
+  getOne(
+    @Param('id') id: string,
+    @Query('lang') lang?: string,
+  ) {
+    return this.productService.getOne(id, lang);
   }
 
   @ApiBearerAuth()
