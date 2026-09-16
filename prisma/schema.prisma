@@ -392,6 +392,9 @@ model Order {
   quantity         Int?
   buyerId          String
   sellerId         String
+  netAmount        Decimal @default(0)
+  vatRate          Int     @default(0)
+  vatAmount        Decimal @default(0)
   totalAmount      Decimal
   commissionAmount Decimal
 

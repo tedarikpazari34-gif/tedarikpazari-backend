@@ -65,15 +65,38 @@ export class OrderService {
 
     const unitPrice = new Prisma.Decimal(product.basePrice);
     const quantity = new Prisma.Decimal(body.quantity);
-    const totalAmount = unitPrice.mul(quantity);
+
+    const netAmount = unitPrice
+      .mul(quantity)
+      .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+
+    const vatRate = product.vatRate ?? 0;
+
+    if (vatRate < 0 || vatRate > 100) {
+      throw new BadRequestException('Geçersiz KDV oranı');
+    }
+
+    const vatAmount = netAmount
+      .mul(new Prisma.Decimal(vatRate))
+      .div(100)
+      .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+
+    const totalAmount = netAmount
+      .add(vatAmount)
+      .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 
     if (totalAmount.lte(0)) {
       throw new BadRequestException('Sipariş tutarı 0 olamaz');
     }
 
-    const commissionAmount = totalAmount.mul(new Prisma.Decimal(0.05));
+    const commissionAmount = netAmount
+      .mul(new Prisma.Decimal(0.05))
+      .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+
     const escrowAmount = totalAmount;
-    const payoutAmount = totalAmount.minus(commissionAmount);
+    const payoutAmount = totalAmount
+      .minus(commissionAmount)
+      .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 
     const order = await this.prisma.order.create({
       data: {
@@ -81,6 +104,9 @@ export class OrderService {
         quantity: body.quantity,
         buyerId: user.companyId,
         sellerId: product.sellerId,
+        netAmount,
+        vatRate,
+        vatAmount,
         totalAmount,
         commissionAmount,
         escrowAmount,
