@@ -92,8 +92,8 @@ export class OrderService {
       throw new BadRequestException('Sipariş tutarı 0 olamaz');
     }
 
-    const commissionAmount = netAmount
-      .mul(new Prisma.Decimal(0.05))
+    const commissionAmount = totalAmount
+      .mul(new Prisma.Decimal(0.03))
       .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 
     const escrowAmount = totalAmount;
