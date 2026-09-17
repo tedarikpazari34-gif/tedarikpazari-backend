@@ -66,7 +66,7 @@ export class OrderService {
     const unitPrice = new Prisma.Decimal(product.basePrice);
     const quantity = new Prisma.Decimal(body.quantity);
 
-    const netAmount = unitPrice
+    const totalAmount = unitPrice
       .mul(quantity)
       .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 
@@ -76,13 +76,16 @@ export class OrderService {
       throw new BadRequestException('Geçersiz KDV oranı');
     }
 
-    const vatAmount = netAmount
-      .mul(new Prisma.Decimal(vatRate))
-      .div(100)
+    const vatDivisor = new Prisma.Decimal(1).add(
+      new Prisma.Decimal(vatRate).div(100),
+    );
+
+    const netAmount = totalAmount
+      .div(vatDivisor)
       .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 
-    const totalAmount = netAmount
-      .add(vatAmount)
+    const vatAmount = totalAmount
+      .minus(netAmount)
       .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 
     if (totalAmount.lte(0)) {
