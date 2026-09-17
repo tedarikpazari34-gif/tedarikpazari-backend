@@ -337,6 +337,35 @@ export class OrderService {
     return order;
   }
 
+  async cancel(user: any, orderId: string) {
+    if (user.role !== Role.BUYER) {
+      throw new ForbiddenException('Sadece BUYER sipariş iptal edebilir');
+    }
+
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    if (order.buyerId !== user.companyId) {
+      throw new ForbiddenException('Bu order size ait değil');
+    }
+
+    if (order.status !== OrderStatus.PENDING_PAYMENT) {
+      throw new BadRequestException(
+        'Sadece ödeme bekleyen siparişler iptal edilebilir',
+      );
+    }
+
+    return this.prisma.order.update({
+      where: { id: orderId },
+      data: { status: OrderStatus.CANCELLED },
+    });
+  }
+
   async pay(user: any, orderId: string) {
   if (user.role !== Role.BUYER) {
     throw new ForbiddenException('Sadece BUYER ödeme yapabilir');

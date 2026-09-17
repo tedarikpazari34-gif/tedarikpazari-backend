@@ -41,6 +41,12 @@ export class OrderController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post(':id/cancel')
+  cancel(@Req() req: any, @Param('id') id: string) {
+    return this.orderService.cancel(req.user, id);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post(':id/pay')
   pay(@Req() req: any, @Param('id') id: string) {
     return this.orderService.pay(req.user, id);
