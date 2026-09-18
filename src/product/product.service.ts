@@ -604,6 +604,97 @@ export class ProductService {
     });
   }
 
+  async replaceImages(user: any, id: string, body: any) {
+    if (user.role !== Role.SELLER) {
+      throw new ForbiddenException('Sadece SELLER ürün görseli güncelleyebilir');
+    }
+
+    const product = await this.prisma.product.findUnique({
+      where: { id },
+    });
+
+    if (!product) {
+      throw new NotFoundException('Ürün bulunamadı');
+    }
+
+    if (product.sellerId !== user.companyId) {
+      throw new ForbiddenException('Bu ürün size ait değil');
+    }
+
+    const rawImages = Array.isArray(body?.images) ? body.images : [];
+
+    const images = rawImages
+      .filter(
+        (img: any) =>
+          img &&
+          typeof img.url === 'string' &&
+          img.url.trim().length > 0,
+      )
+      .map((img: any, index: number) => ({
+        url: img.url.trim(),
+        sortOrder: index,
+        isCover: Boolean(img.isCover),
+      }));
+
+    if (images.length > 0) {
+      const requestedCoverIndex = images.findIndex((img) => img.isCover);
+      const coverIndex = requestedCoverIndex >= 0 ? requestedCoverIndex : 0;
+
+      images.forEach((img, index) => {
+        img.isCover = index === coverIndex;
+      });
+    }
+
+    const coverImage =
+      images.find((img) => img.isCover)?.url || null;
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.productImage.deleteMany({
+        where: { productId: id },
+      });
+
+      if (images.length > 0) {
+        await tx.productImage.createMany({
+          data: images.map((img) => ({
+            productId: id,
+            url: img.url,
+            sortOrder: img.sortOrder,
+            isCover: img.isCover,
+          })),
+        });
+      }
+
+      await tx.product.update({
+        where: { id },
+        data: {
+          imageUrl: coverImage,
+        },
+      });
+    });
+
+    return this.prisma.product.findUnique({
+      where: { id },
+      include: {
+        category: true,
+        images: {
+          orderBy: { sortOrder: 'asc' },
+        },
+        seller: {
+          select: {
+            id: true,
+            name: true,
+            verified: true,
+            status: true,
+            rating: true,
+            reviewCount: true,
+            city: true,
+            responseTime: true,
+          },
+        },
+      },
+    });
+  }
+
   async update(user: any, id: string, body: UpdateProductDto) {
     if (user.role !== Role.SELLER) {
       throw new ForbiddenException('Sadece SELLER ürün güncelleyebilir');

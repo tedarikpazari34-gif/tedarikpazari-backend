@@ -5,6 +5,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -156,6 +157,13 @@ export class ProductController {
   @Post(':id/images')
   addImages(@Req() req: any, @Param('id') id: string, @Body() body: any) {
     return this.productService.addImages(req.user, id, body);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Put(':id/images')
+  replaceImages(@Req() req: any, @Param('id') id: string, @Body() body: any) {
+    return this.productService.replaceImages(req.user, id, body);
   }
 
   @ApiBearerAuth()
