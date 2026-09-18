@@ -101,6 +101,7 @@ export class AuthService {
       district,
       taxNumber,
       taxOffice,
+      paymentIdentityNumber,
       address,
     } = data;
 
@@ -120,6 +121,52 @@ export class AuthService {
     }
 
     const selectedCountry = country?.trim() || 'Türkiye';
+
+    const selectedCategories = Array.isArray(categories)
+      ? categories.map((item: any) => String(item).trim()).filter(Boolean)
+      : category?.trim()
+        ? [category.trim()]
+        : [];
+
+    if (
+      !companyType?.trim() ||
+      !city?.trim() ||
+      !district?.trim() ||
+      !address?.trim() ||
+      !taxOffice?.trim() ||
+      selectedCategories.length === 0
+    ) {
+      throw new BadRequestException(
+        'Şirket türü, sektör, şehir, ilçe, açık adres ve vergi dairesi zorunludur',
+      );
+    }
+
+    if (selectedCategories.length > 3) {
+      throw new BadRequestException('En fazla 3 sektör seçebilirsiniz');
+    }
+
+    if (selectedCountry === 'Türkiye') {
+      if (companyType === 'Şahıs') {
+        if (!/^\d{11}$/.test(String(paymentIdentityNumber || '').trim())) {
+          throw new BadRequestException(
+            'Şahıs şirketi için 11 haneli T.C. kimlik numarası zorunludur',
+          );
+        }
+      } else if (['Limited', 'Anonim'].includes(companyType)) {
+        if (!/^\d{10}$/.test(String(taxNumber || '').trim())) {
+          throw new BadRequestException(
+            'Limited ve Anonim şirketler için 10 haneli vergi kimlik numarası zorunludur',
+          );
+        }
+      } else {
+        throw new BadRequestException('Geçerli bir şirket türü seçiniz');
+      }
+    } else if (!String(taxNumber || '').trim()) {
+      throw new BadRequestException(
+        'Yabancı şirketler için vergi/şirket kayıt numarası zorunludur',
+      );
+    }
+
     const rawPhone = String(phone).trim();
     const phoneDigits = rawPhone.replace(/\D/g, '');
 
@@ -163,18 +210,21 @@ export class AuthService {
         phone: normalizedPhone,
         country: selectedCountry,
         city: city || null,
-        taxNumber: taxNumber || null,
-        taxOffice: taxOffice || null,
+        taxNumber:
+          selectedCountry === 'Türkiye' && companyType === 'Şahıs'
+            ? null
+            : String(taxNumber || '').trim() || null,
+        taxOffice: String(taxOffice || '').trim() || null,
+        paymentIdentityNumber:
+          selectedCountry === 'Türkiye' && companyType === 'Şahıs'
+            ? String(paymentIdentityNumber).trim()
+            : null,
         address: {
-          address: address || '',
-          district: district || '',
-          companyType: companyType || '',
-          category: category || '',
-          categories: Array.isArray(categories)
-            ? categories.slice(0, 3)
-            : category
-              ? [category]
-              : [],
+          address: address.trim(),
+          district: district.trim(),
+          companyType: companyType.trim(),
+          category: selectedCategories[0] || '',
+          categories: selectedCategories.slice(0, 3),
           fullName: fullName.trim(),
         },
       },

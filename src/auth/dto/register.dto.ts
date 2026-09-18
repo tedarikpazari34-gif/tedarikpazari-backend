@@ -74,6 +74,17 @@ export class RegisterDto {
   @IsString()
   taxOffice?: string;
 
+  @ApiPropertyOptional({
+    example: '12345678901',
+    description: 'Türkiye şahıs şirketleri için T.C. kimlik numarası',
+  })
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{11}$/, {
+    message: 'T.C. kimlik numarası 11 haneli olmalıdır',
+  })
+  paymentIdentityNumber?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()
