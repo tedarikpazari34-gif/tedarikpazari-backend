@@ -265,9 +265,10 @@ model Product {
   moq       Int
   basePrice Decimal
 
-  leadTimeDays Int?
-  stockType    String?
-  vatRate      Int?
+  leadTimeDays  Int?
+  stockType     String?
+  stockQuantity Int?
+  vatRate       Int?
 
   rfqEnabled Boolean @default(true)
 

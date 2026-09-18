@@ -54,6 +54,11 @@ export class CreateProductDto {
   @IsOptional()
   @IsInt()
   @Min(0)
+  stockQuantity?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
   vatRate?: number;
 
   @IsOptional()

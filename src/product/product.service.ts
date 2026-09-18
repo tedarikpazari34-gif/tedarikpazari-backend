@@ -171,6 +171,7 @@ export class ProductService {
         basePrice: true,
         leadTimeDays: true,
         stockType: true,
+        stockQuantity: true,
         vatRate: true,
         rfqEnabled: true,
         isActive: true,
@@ -234,6 +235,7 @@ export class ProductService {
         basePrice: true,
         leadTimeDays: true,
         stockType: true,
+        stockQuantity: true,
         vatRate: true,
         rfqEnabled: true,
         isActive: true,
@@ -342,6 +344,7 @@ export class ProductService {
         basePrice: true,
         leadTimeDays: true,
         stockType: true,
+        stockQuantity: true,
         vatRate: true,
         rfqEnabled: true,
         isActive: true,
@@ -502,6 +505,10 @@ export class ProductService {
         basePrice: body.basePrice,
         leadTimeDays: body.leadTimeDays || null,
         stockType: body.stockType || null,
+        stockQuantity:
+          body.stockQuantity !== undefined && body.stockQuantity !== null
+            ? Number(body.stockQuantity)
+            : null,
         vatRate: body.vatRate || null,
         rfqEnabled: body.rfqEnabled ?? true,
         isActive: true,
@@ -736,6 +743,14 @@ export class ProductService {
           : {}),
         ...(body.stockType !== undefined
           ? { stockType: body.stockType || null }
+          : {}),
+        ...(body.stockQuantity !== undefined
+          ? {
+              stockQuantity:
+                body.stockQuantity === null
+                  ? null
+                  : Number(body.stockQuantity),
+            }
           : {}),
         ...(body.vatRate !== undefined
           ? { vatRate: body.vatRate || null }
