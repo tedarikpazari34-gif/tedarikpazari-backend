@@ -21,6 +21,39 @@ export class ProductService {
     private readonly aiService: AiService,
   ) {}
 
+  private async requireVerifiedSellerCompany(user: any) {
+    if (user.role !== Role.SELLER) {
+      throw new ForbiddenException('Bu işlem yalnızca satıcı firmalar içindir');
+    }
+
+    const company = await this.prisma.company.findUnique({
+      where: { id: user.companyId },
+      select: {
+        id: true,
+        status: true,
+        verified: true,
+      },
+    });
+
+    if (!company) {
+      throw new NotFoundException('Satıcı firması bulunamadı');
+    }
+
+    if (company.status !== CompanyStatus.APPROVED) {
+      throw new ForbiddenException(
+        'Firmanız onaylanmadan ürün işlemi yapamazsınız',
+      );
+    }
+
+    if (!company.verified) {
+      throw new ForbiddenException(
+        'Firma doğrulaması tamamlanmadan ürün işlemi yapamazsınız',
+      );
+    }
+
+    return company;
+  }
+
   private applyTranslation(product: any) {
     const productTranslation = product.translations?.[0];
     const categoryTranslation = product.category?.translations?.[0];
@@ -468,27 +501,7 @@ export class ProductService {
   }
 
   async create(user: any, body: CreateProductDto) {
-    if (user.role !== Role.SELLER) {
-      throw new ForbiddenException('Sadece SELLER ürün ekleyebilir');
-    }
-
-    const sellerCompany = await this.prisma.company.findUnique({
-      where: { id: user.companyId },
-      select: {
-        id: true,
-        status: true,
-      },
-    });
-
-    if (!sellerCompany) {
-      throw new NotFoundException('Satıcı firması bulunamadı');
-    }
-
-    if (sellerCompany.status !== CompanyStatus.APPROVED) {
-      throw new ForbiddenException(
-        'Yalnızca onaylanmış satıcı firmalar ürün yayınlayabilir',
-      );
-    }
+    await this.requireVerifiedSellerCompany(user);
 
     const product = await this.prisma.product.create({
       data: {
@@ -545,9 +558,7 @@ export class ProductService {
   }
 
   async addImages(user: any, id: string, body: any) {
-    if (user.role !== Role.SELLER) {
-      throw new ForbiddenException('Sadece SELLER ürün görseli ekleyebilir');
-    }
+    await this.requireVerifiedSellerCompany(user);
 
     const product = await this.prisma.product.findUnique({
       where: { id },
@@ -612,9 +623,7 @@ export class ProductService {
   }
 
   async replaceImages(user: any, id: string, body: any) {
-    if (user.role !== Role.SELLER) {
-      throw new ForbiddenException('Sadece SELLER ürün görseli güncelleyebilir');
-    }
+    await this.requireVerifiedSellerCompany(user);
 
     const product = await this.prisma.product.findUnique({
       where: { id },
@@ -703,9 +712,7 @@ export class ProductService {
   }
 
   async update(user: any, id: string, body: UpdateProductDto) {
-    if (user.role !== Role.SELLER) {
-      throw new ForbiddenException('Sadece SELLER ürün güncelleyebilir');
-    }
+    await this.requireVerifiedSellerCompany(user);
 
     const product = await this.prisma.product.findUnique({
       where: { id },

@@ -521,6 +521,8 @@ export class AuthService {
         companyId: user.companyId,
         role: user.company.role,
         companyStatus: user.company.status,
+        emailVerified: user.emailVerified,
+        companyVerified: user.company.verified,
       },
     };
   }
