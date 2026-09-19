@@ -101,6 +101,7 @@ export class AuthService {
       country,
       city,
       district,
+      postalCode,
       taxNumber,
       taxOffice,
       paymentIdentityNumber,
@@ -224,6 +225,7 @@ export class AuthService {
         address: {
           address: address.trim(),
           district: district.trim(),
+          postalCode: String(postalCode || '').trim(),
           companyType: companyType.trim(),
           category: selectedCategories[0] || '',
           categories: selectedCategories.slice(0, 3),

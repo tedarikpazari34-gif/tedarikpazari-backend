@@ -64,6 +64,11 @@ export class RegisterDto {
   @IsString()
   district?: string;
 
+  @ApiPropertyOptional({ example: '34000' })
+  @IsOptional()
+  @IsString()
+  postalCode?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @IsString()

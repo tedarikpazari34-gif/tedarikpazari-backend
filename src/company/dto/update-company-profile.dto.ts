@@ -64,6 +64,11 @@ export class UpdateCompanyProfileDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(20)
+  postalCode?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(1000)
   address?: string;
 

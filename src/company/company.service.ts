@@ -133,6 +133,9 @@ export class CompanyService {
       ...(body.district !== undefined
         ? { district: body.district.trim() }
         : {}),
+      ...(body.postalCode !== undefined
+        ? { postalCode: body.postalCode.trim() }
+        : {}),
       ...(body.companyType !== undefined
         ? { companyType: body.companyType.trim() }
         : {}),
@@ -239,6 +242,7 @@ export class CompanyService {
           : {}),
         ...(body.address !== undefined ||
         body.district !== undefined ||
+        body.postalCode !== undefined ||
         body.companyType !== undefined ||
         body.fullName !== undefined ||
         body.categories !== undefined
@@ -251,7 +255,8 @@ export class CompanyService {
           ? selectedCountry === 'Türkiye' && selectedCompanyType === 'Şahıs'
             ? {
                 taxNumber: null,
-                paymentIdentityNumber: this.sensitiveData.encrypt(selectedIdentityNumber),
+                paymentIdentityNumber:
+                  this.sensitiveData.encrypt(selectedIdentityNumber),
               }
             : {
                 taxNumber: selectedTaxNumber || null,
