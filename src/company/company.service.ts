@@ -49,6 +49,7 @@ export class CompanyService {
         logo: true,
         banner: true,
           taxNumber: true,
+          paymentIdentityNumber: true,
           taxOffice: true,
           address: true,
         verified: true,
@@ -62,7 +63,12 @@ export class CompanyService {
       throw new NotFoundException('Şirket bulunamadı');
     }
 
-    return company;
+    const { paymentIdentityNumber, ...safeCompany } = company;
+
+    return {
+      ...safeCompany,
+      hasPaymentIdentityNumber: Boolean(paymentIdentityNumber),
+    };
   }
 
   async updateMine(user: any, body: UpdateCompanyProfileDto) {
