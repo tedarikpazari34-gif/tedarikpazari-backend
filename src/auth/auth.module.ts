@@ -9,10 +9,12 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { NotificationModule } from '../notification/notification.module';
 import { ChatModule } from '../chat/chat.module';
 import { MailModule } from '../mail/mail.module';
+import { CommonModule } from '../common/common.module';
 
 @Module({
   imports: [
     PrismaModule,
+    CommonModule,
     NotificationModule,
     ChatModule,
     MailModule,

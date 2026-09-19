@@ -5,10 +5,14 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
 import { UpdateCompanyProfileDto } from './dto/update-company-profile.dto';
+import { SensitiveDataService } from '../common/security/sensitive-data.service';
 
 @Injectable()
 export class CompanyService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly sensitiveData: SensitiveDataService,
+  ) {}
 
   async verifyCompany(id: string) {
     const company = await this.prisma.company.findUnique({
@@ -161,7 +165,7 @@ export class CompanyService {
     const selectedIdentityNumber =
       body.paymentIdentityNumber !== undefined
         ? body.paymentIdentityNumber.trim()
-        : company.paymentIdentityNumber || '';
+        : this.sensitiveData.decrypt(company.paymentIdentityNumber) || '';
 
     const countryChanged =
       body.country !== undefined &&
@@ -247,7 +251,7 @@ export class CompanyService {
           ? selectedCountry === 'Türkiye' && selectedCompanyType === 'Şahıs'
             ? {
                 taxNumber: null,
-                paymentIdentityNumber: selectedIdentityNumber,
+                paymentIdentityNumber: this.sensitiveData.encrypt(selectedIdentityNumber),
               }
             : {
                 taxNumber: selectedTaxNumber || null,

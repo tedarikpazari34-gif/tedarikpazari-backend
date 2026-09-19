@@ -9,6 +9,7 @@ import axios from 'axios';
 import { NotificationService } from '../notification/notification.service';
 import { ChatGateway } from '../chat/chat.gateway';
 import { MailService } from '../mail/mail.service';
+import { SensitiveDataService } from '../common/security/sensitive-data.service';
 
 @Injectable()
 export class AuthService {
@@ -18,6 +19,7 @@ export class AuthService {
     private readonly notificationService: NotificationService,
     private readonly chatGateway: ChatGateway,
     private readonly mailService: MailService,
+    private readonly sensitiveData: SensitiveDataService,
   ) {}
 
   private async verifyRecaptcha(token?: string) {
@@ -217,7 +219,7 @@ export class AuthService {
         taxOffice: String(taxOffice || '').trim() || null,
         paymentIdentityNumber:
           selectedCountry === 'Türkiye' && companyType === 'Şahıs'
-            ? String(paymentIdentityNumber).trim()
+            ? this.sensitiveData.encrypt(String(paymentIdentityNumber).trim())
             : null,
         address: {
           address: address.trim(),
