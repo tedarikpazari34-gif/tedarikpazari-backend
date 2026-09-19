@@ -153,11 +153,15 @@ async function ensureAdmin() {
     update: {
       password: hashedPassword,
       companyId: adminCompany.id,
+      role: Role.ADMIN,
+      emailVerified: true,
     },
     create: {
       email: adminEmail,
       password: hashedPassword,
       companyId: adminCompany.id,
+      role: Role.ADMIN,
+      emailVerified: true,
     },
   });
 
