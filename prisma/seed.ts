@@ -249,7 +249,9 @@ async function main() {
 
   await ensureCategoryTree();
   await ensureAdmin();
-  await ensureDevUsers();
+  if (process.env.NODE_ENV !== "production") {
+    await ensureDevUsers();
+  }
 
   console.log("✅ Seed completed successfully");
   console.log("ℹ️ No demo products were created");
