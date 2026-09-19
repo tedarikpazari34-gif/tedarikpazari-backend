@@ -1,6 +1,8 @@
 import {
+  IsArray,
   IsOptional,
   IsString,
+  Matches,
   MaxLength,
 } from 'class-validator';
 
@@ -44,4 +46,46 @@ export class UpdateCompanyProfileDto {
   @IsString()
   @MaxLength(1000)
   banner?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(160)
+  fullName?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  companyType?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  district?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  address?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  taxOffice?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  taxNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{11}$/, {
+    message: 'T.C. kimlik numarası 11 haneli olmalıdır',
+  })
+  paymentIdentityNumber?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  categories?: string[];
 }

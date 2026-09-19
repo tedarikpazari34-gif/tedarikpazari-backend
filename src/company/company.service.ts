@@ -48,6 +48,9 @@ export class CompanyService {
         website: true,
         logo: true,
         banner: true,
+          taxNumber: true,
+          taxOffice: true,
+          address: true,
         verified: true,
         status: true,
         role: true,
@@ -87,6 +90,111 @@ export class CompanyService {
       throw new BadRequestException('Geçerli bir web sitesi girin');
     }
 
+    const currentAddress =
+      company.address &&
+      typeof company.address === 'object' &&
+      !Array.isArray(company.address)
+        ? (company.address as Record<string, any>)
+        : {};
+
+    const submittedCategories =
+      body.categories !== undefined
+        ? body.categories
+            .map((item) => String(item).trim())
+            .filter(Boolean)
+        : undefined;
+
+    if (submittedCategories && submittedCategories.length > 3) {
+      throw new BadRequestException('En fazla 3 kategori seçebilirsiniz');
+    }
+
+    const selectedCategories =
+      submittedCategories !== undefined
+        ? submittedCategories
+        : Array.isArray(currentAddress.categories)
+          ? currentAddress.categories
+          : [];
+
+    const nextAddress = {
+      ...currentAddress,
+      ...(body.address !== undefined
+        ? { address: body.address.trim() }
+        : {}),
+      ...(body.district !== undefined
+        ? { district: body.district.trim() }
+        : {}),
+      ...(body.companyType !== undefined
+        ? { companyType: body.companyType.trim() }
+        : {}),
+      ...(body.fullName !== undefined
+        ? { fullName: body.fullName.trim() }
+        : {}),
+      ...(body.categories !== undefined
+        ? {
+            category: selectedCategories[0] || '',
+            categories: selectedCategories,
+          }
+        : {}),
+    };
+
+    const selectedCountry =
+      body.country !== undefined
+        ? body.country.trim()
+        : company.country || 'Türkiye';
+
+    const selectedCompanyType =
+      body.companyType !== undefined
+        ? body.companyType.trim()
+        : String(currentAddress.companyType || '').trim();
+
+    const selectedTaxNumber =
+      body.taxNumber !== undefined
+        ? body.taxNumber.trim()
+        : company.taxNumber || '';
+
+    const selectedIdentityNumber =
+      body.paymentIdentityNumber !== undefined
+        ? body.paymentIdentityNumber.trim()
+        : company.paymentIdentityNumber || '';
+
+    const countryChanged =
+      body.country !== undefined &&
+      body.country.trim() !== (company.country || '').trim();
+
+    const legalFieldsTouched =
+      body.companyType !== undefined ||
+      body.taxNumber !== undefined ||
+      body.paymentIdentityNumber !== undefined ||
+      body.taxOffice !== undefined ||
+      body.district !== undefined ||
+      body.address !== undefined ||
+      body.categories !== undefined ||
+      countryChanged;
+
+    if (legalFieldsTouched) {
+      if (selectedCountry === 'Türkiye') {
+        if (selectedCompanyType === 'Şahıs') {
+          if (!/^\d{11}$/.test(selectedIdentityNumber)) {
+            throw new BadRequestException(
+              'Şahıs şirketi için 11 haneli T.C. kimlik numarası zorunludur',
+            );
+          }
+        } else if (['Limited', 'Anonim'].includes(selectedCompanyType)) {
+          if (!/^\d{10}$/.test(selectedTaxNumber)) {
+            throw new BadRequestException(
+              'Limited ve Anonim şirketler için 10 haneli vergi kimlik numarası zorunludur',
+            );
+          }
+        } else {
+          throw new BadRequestException('Geçerli bir şirket türü seçiniz');
+        }
+      } else if (!selectedTaxNumber) {
+        throw new BadRequestException(
+          'Yabancı şirketler için vergi/şirket kayıt numarası zorunludur',
+        );
+      }
+    }
+
     return this.prisma.company.update({
       where: {
         id: user.companyId,
@@ -116,6 +224,30 @@ export class CompanyService {
         ...(body.banner !== undefined
           ? { banner: body.banner.trim() || null }
           : {}),
+        ...(body.taxOffice !== undefined
+          ? { taxOffice: body.taxOffice.trim() || null }
+          : {}),
+        ...(body.address !== undefined ||
+        body.district !== undefined ||
+        body.companyType !== undefined ||
+        body.fullName !== undefined ||
+        body.categories !== undefined
+          ? { address: nextAddress }
+          : {}),
+        ...(body.taxNumber !== undefined ||
+        body.paymentIdentityNumber !== undefined ||
+        body.companyType !== undefined ||
+        body.country !== undefined
+          ? selectedCountry === 'Türkiye' && selectedCompanyType === 'Şahıs'
+            ? {
+                taxNumber: null,
+                paymentIdentityNumber: selectedIdentityNumber,
+              }
+            : {
+                taxNumber: selectedTaxNumber || null,
+                paymentIdentityNumber: null,
+              }
+          : {}),
       },
       select: {
         id: true,
@@ -128,6 +260,9 @@ export class CompanyService {
         website: true,
         logo: true,
         banner: true,
+          taxNumber: true,
+          taxOffice: true,
+          address: true,
         verified: true,
         status: true,
         role: true,
