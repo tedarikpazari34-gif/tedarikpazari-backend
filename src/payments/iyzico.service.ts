@@ -39,7 +39,7 @@ export class IyzicoService {
 
       return result;
     } catch (error) {
-      console.error('IYZICO CHECKOUT INIT ERROR', error);
+      console.error('IYZICO CHECKOUT INIT ERROR');
       throw new InternalServerErrorException('iyzico checkout init failed');
     }
   }
@@ -60,8 +60,28 @@ export class IyzicoService {
 
       return result;
     } catch (error) {
-      console.error('IYZICO RETRIEVE ERROR', error);
+      console.error('IYZICO RETRIEVE ERROR');
       throw new InternalServerErrorException('iyzico retrieve failed');
+    }
+  }
+
+  async createSubMerchant(request: any): Promise<any> {
+    try {
+      const result: any = await new Promise((resolve, reject) => {
+        this.iyzipay.subMerchant.create(request, (err: any, res: any) => {
+          if (err) {
+            return reject(err);
+          }
+          resolve(res);
+        });
+      });
+
+      return result;
+    } catch (error) {
+      console.error("IYZICO SUBMERCHANT CREATE ERROR");
+      throw new InternalServerErrorException(
+        "iyzico submerchant create failed",
+      );
     }
   }
 

@@ -260,7 +260,10 @@ export class CompanyService {
               }
             : {
                 taxNumber: selectedTaxNumber || null,
-                paymentIdentityNumber: null,
+                paymentIdentityNumber:
+                  body.paymentIdentityNumber !== undefined
+                    ? this.sensitiveData.encrypt(selectedIdentityNumber)
+                    : company.paymentIdentityNumber,
               }
           : {}),
       },

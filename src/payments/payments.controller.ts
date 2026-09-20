@@ -19,6 +19,16 @@ export class PaymentsController {
   constructor(private readonly payments: PaymentsService) {}
 
   @UseGuards(JwtAuthGuard)
+  @Post('iyzico/submerchant')
+  @ApiOperation({ summary: 'Create iyzico Marketplace sub merchant for seller' })
+  createSubMerchant(
+    @Req() req: any,
+    @Body() body: { iban?: string; identityNumber?: string },
+  ) {
+    return this.payments.createIyzicoSubMerchant(req.user, body);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post('iyzico/:orderId/initialize')
   @ApiOperation({ summary: 'Initialize iyzico checkout' })
   initialize(@Req() req: any, @Param('orderId') orderId: string) {
@@ -36,7 +46,7 @@ export class PaymentsController {
 
       return res.redirect(303, `${frontendUrl}/buyer/orders?payment=success`);
     } catch (error) {
-      console.error('IYZICO CALLBACK ERROR:', error);
+      console.error('IYZICO CALLBACK ERROR');
 
       const frontendUrl =
         process.env.FRONTEND_URL || 'https://xn--tedarikpazar-d5b.com';
