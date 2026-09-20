@@ -195,9 +195,14 @@ export class OrderService {
       new Prisma.Decimal(quote.rfq.quantity),
     );
 
-    const commissionAmount = totalAmount.mul(new Prisma.Decimal(0.05));
+    const commissionAmount = totalAmount
+      .mul(new Prisma.Decimal(0.03))
+      .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+
     const escrowAmount = totalAmount;
-    const payoutAmount = totalAmount.minus(commissionAmount);
+    const payoutAmount = totalAmount
+      .minus(commissionAmount)
+      .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 
     const result = await this.prisma.$transaction(async (tx) => {
       const order = await tx.order.create({
