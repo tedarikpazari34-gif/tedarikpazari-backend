@@ -83,6 +83,7 @@ enum PaymentProvider {
 enum PaymentStatus {
   INITIATED
   CALLBACK_RECEIVED
+  REVIEW
   SUCCESS
   FAILED
 }
@@ -492,8 +493,12 @@ model PaymentAttempt {
   rawRequest  Json?
   rawResponse Json?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  callbackVerifiedAt DateTime?
+  reviewedAt         DateTime?
+  succeededAt        DateTime?
+  failedAt           DateTime?
 
   order Order @relation("OrderPaymentAttempts", fields: [orderId], references: [id])
 

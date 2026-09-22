@@ -39,10 +39,18 @@ export class PaymentsController {
   @ApiOperation({ summary: 'iyzico callback' })
   async callback(@Body() body: { token?: string }, @Res() res: Response) {
     try {
-      await this.payments.handleIyzicoCallback(body.token || '');
+      const result = await this.payments.handleIyzicoCallback(body.token || '');
 
       const frontendUrl =
         process.env.FRONTEND_URL || 'https://xn--tedarikpazar-d5b.com';
+
+      if (
+        result &&
+        'paymentStatus' in result &&
+        result.paymentStatus === 'REVIEW'
+      ) {
+        return res.redirect(303, `${frontendUrl}/buyer/orders?payment=review`);
+      }
 
       return res.redirect(303, `${frontendUrl}/buyer/orders?payment=success`);
     } catch (error) {

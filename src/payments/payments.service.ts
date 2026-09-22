@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
@@ -56,10 +57,202 @@ export class PaymentsService {
       paidPrice: result.paidPrice ?? null,
       currency: result.currency ?? null,
       fraudStatus: result.fraudStatus ?? null,
+      itemTransactions: Array.isArray(result.itemTransactions)
+        ? result.itemTransactions.map((item: any) => ({
+            itemId: item.itemId ?? null,
+            paymentTransactionId: item.paymentTransactionId ?? null,
+            transactionStatus: item.transactionStatus ?? null,
+            price: item.price ?? null,
+            paidPrice: item.paidPrice ?? null,
+          }))
+        : [],
       errorCode: result.errorCode ?? null,
       errorMessage: result.errorMessage ?? null,
       errorGroup: result.errorGroup ?? null,
     };
+  }
+
+  private getExpectedBasketItemId(rawRequest: Prisma.JsonValue | null) {
+    if (!rawRequest || typeof rawRequest !== 'object' || Array.isArray(rawRequest)) {
+      return null;
+    }
+
+    const basketItems = (rawRequest as Prisma.JsonObject).basketItems;
+
+    if (!Array.isArray(basketItems) || basketItems.length !== 1) {
+      return null;
+    }
+
+    const item = basketItems[0];
+
+    if (!item || typeof item !== 'object' || Array.isArray(item)) {
+      return null;
+    }
+
+    const itemId = (item as Prisma.JsonObject).id;
+
+    return typeof itemId === 'string' && itemId.trim()
+      ? itemId.trim()
+      : null;
+  }
+
+  private async markPaymentAttemptSuccess(
+    tx: Prisma.TransactionClient,
+    paymentAttemptId: string,
+    result: any,
+    iyzicoPaymentId: string,
+  ) {
+    const safeResult = this.safeIyzicoResult(result);
+
+    const transitioned = await tx.paymentAttempt.updateMany({
+      where: {
+        id: paymentAttemptId,
+        OR: [
+          {
+            status: {
+              notIn: [PaymentStatus.SUCCESS, PaymentStatus.FAILED],
+            },
+          },
+          {
+            status: PaymentStatus.SUCCESS,
+            iyzicoPaymentId,
+          },
+        ],
+      },
+      data: {
+        status: PaymentStatus.SUCCESS,
+        iyzicoPaymentId,
+        rawResponse: safeResult,
+      },
+    });
+
+    if (transitioned.count === 0) {
+      const attempt = await tx.paymentAttempt.findUnique({
+        where: { id: paymentAttemptId },
+      });
+
+      if (!attempt) {
+        throw new BadRequestException('Ödeme denemesi bulunamadı');
+      }
+
+      throw new BadRequestException(
+        'Ödeme denemesi SUCCESS durumuna güvenli şekilde geçirilemedi; mutabakat gerekli',
+      );
+    }
+
+    await tx.paymentAttempt.updateMany({
+      where: {
+        id: paymentAttemptId,
+        status: PaymentStatus.SUCCESS,
+        iyzicoPaymentId,
+        succeededAt: null,
+      },
+      data: {
+        succeededAt: new Date(),
+      },
+    });
+  }
+
+  private async markPaymentAttemptFailed(
+    paymentAttemptId: string,
+    result: any,
+    iyzicoPaymentId?: string,
+  ) {
+    const safeResult = this.safeIyzicoResult(result);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.paymentAttempt.updateMany({
+        where: {
+          id: paymentAttemptId,
+          status: {
+            in: [
+              PaymentStatus.INITIATED,
+              PaymentStatus.CALLBACK_RECEIVED,
+              PaymentStatus.REVIEW,
+            ],
+          },
+          failedAt: null,
+        },
+        data: {
+          failedAt: new Date(),
+        },
+      });
+
+      const transitioned = await tx.paymentAttempt.updateMany({
+        where: {
+          id: paymentAttemptId,
+          status: {
+            in: [
+              PaymentStatus.INITIATED,
+              PaymentStatus.CALLBACK_RECEIVED,
+              PaymentStatus.REVIEW,
+            ],
+          },
+        },
+        data: {
+          status: PaymentStatus.FAILED,
+          ...(iyzicoPaymentId ? { iyzicoPaymentId } : {}),
+          rawResponse: safeResult,
+        },
+      });
+
+      if (transitioned.count === 0) {
+        throw new BadRequestException(
+          'Başarılı ödeme denemesi başarısız duruma çevrilemez; mutabakat gerekli',
+        );
+      }
+    });
+  }
+
+  private async markPaymentAttemptReview(
+    paymentAttemptId: string,
+    result: any,
+    iyzicoPaymentId: string,
+  ) {
+    const safeResult = this.safeIyzicoResult(result);
+
+    await this.prisma.$transaction(async (tx) => {
+      await tx.paymentAttempt.updateMany({
+        where: {
+          id: paymentAttemptId,
+          status: {
+            in: [
+              PaymentStatus.INITIATED,
+              PaymentStatus.CALLBACK_RECEIVED,
+              PaymentStatus.REVIEW,
+            ],
+          },
+          reviewedAt: null,
+        },
+        data: {
+          reviewedAt: new Date(),
+        },
+      });
+
+      const transitioned = await tx.paymentAttempt.updateMany({
+        where: {
+          id: paymentAttemptId,
+          status: {
+            in: [
+              PaymentStatus.INITIATED,
+              PaymentStatus.CALLBACK_RECEIVED,
+              PaymentStatus.REVIEW,
+            ],
+          },
+        },
+        data: {
+          status: PaymentStatus.REVIEW,
+          iyzicoPaymentId,
+          rawResponse: safeResult,
+        },
+      });
+
+      if (transitioned.count === 0) {
+        throw new BadRequestException(
+          'Başarılı ödeme denemesi inceleme durumuna çevrilemez; mutabakat gerekli',
+        );
+      }
+    });
   }
 
   async createIyzicoSubMerchant(
@@ -309,9 +502,13 @@ export class PaymentsService {
 
     const conversationId = `ord_${order.id}_${Date.now()}`;
 
-    const callbackUrl =
-      process.env.IYZICO_CALLBACK_URL ||
-      'http://localhost:3002/api/payments/iyzico/callback';
+    const callbackUrl = process.env.IYZICO_CALLBACK_URL?.trim();
+
+    if (!callbackUrl) {
+      throw new InternalServerErrorException(
+        'iyzico callback yapılandırması eksik',
+      );
+    }
 
     const buyerAddressData =
       order.buyer?.address &&
@@ -429,6 +626,14 @@ export class PaymentsService {
       throw new BadRequestException('IyziCo ödeme başlatılamadı');
     }
 
+    const checkoutToken = String(result.token ?? '').trim();
+
+    if (!checkoutToken) {
+      throw new BadRequestException(
+        'IyziCo ödeme başlatma yanıtında geçerli token alınamadı',
+      );
+    }
+
     const sanitizedRequest = {
       locale: request.locale,
       conversationId: request.conversationId,
@@ -456,7 +661,7 @@ export class PaymentsService {
         provider: PaymentProvider.IYZICO,
         status: PaymentStatus.INITIATED,
         conversationId,
-        checkoutToken: result.token ?? null,
+        checkoutToken,
         rawRequest: sanitizedRequest,
         rawResponse: this.safeIyzicoResult(result),
       },
@@ -469,7 +674,7 @@ export class PaymentsService {
       message: 'iyzico init ok',
       orderId: order.id,
       conversationId,
-      token: result.token,
+      token: checkoutToken,
       checkoutFormContent: result.checkoutFormContent,
       paymentPageUrl: result.paymentPageUrl,
     };
@@ -509,31 +714,71 @@ export class PaymentsService {
 
     const normalizedToken = token.trim();
 
-    const attempt = await this.prisma.paymentAttempt.findFirst({
+    const attempts = await this.prisma.paymentAttempt.findMany({
       where: {
         checkoutToken: normalizedToken,
         provider: PaymentProvider.IYZICO,
       },
+      take: 2,
     });
 
-    if (!attempt) {
+    if (attempts.length !== 1) {
       throw new BadRequestException(
-        'Bu ödeme tokenı için geçerli bir ödeme denemesi bulunamadı',
+        attempts.length === 0
+          ? 'Bu ödeme tokenı için geçerli bir ödeme denemesi bulunamadı'
+          : 'Bu ödeme tokenı birden fazla ödeme denemesiyle eşleşiyor',
       );
     }
 
-    const basketOrderId = String(result.basketId || '').trim();
+    const attempt = attempts[0];
 
-    if (basketOrderId && basketOrderId !== attempt.orderId) {
+    const basketOrderId = String(result.basketId ?? '').trim();
+    const resultConversationId = String(result.conversationId ?? '').trim();
+    const expectedConversationId = String(attempt.conversationId ?? '').trim();
+
+    if (!basketOrderId || basketOrderId !== attempt.orderId) {
       throw new BadRequestException(
         'iyzico basketId ile ödeme denemesi siparişi eşleşmiyor',
       );
     }
 
+    if (
+      !resultConversationId ||
+      !expectedConversationId ||
+      resultConversationId !== expectedConversationId
+    ) {
+      throw new BadRequestException(
+        'iyzico conversationId ile ödeme denemesi eşleşmiyor',
+      );
+    }
+
+    const expectedBasketItemId = this.getExpectedBasketItemId(
+      attempt.rawRequest,
+    );
+
+    if (!expectedBasketItemId) {
+      throw new BadRequestException(
+        'Ödeme denemesinin basket item kaydı doğrulanamadı',
+      );
+    }
+
+    await this.prisma.paymentAttempt.updateMany({
+      where: {
+        id: attempt.id,
+        callbackVerifiedAt: null,
+      },
+      data: {
+        callbackVerifiedAt: new Date(),
+      },
+    });
+
     return this.processSuccessfulPayment(
+      attempt.id,
       attempt.orderId,
       normalizedToken,
       result,
+      expectedBasketItemId,
+      resultConversationId,
     );
   }
 
@@ -542,9 +787,12 @@ export class PaymentsService {
    * - idempotent: order zaten PAID ise tekrar yapma
    */
   private async processSuccessfulPayment(
+    paymentAttemptId: string,
     orderId: string,
     token: string,
     result: any,
+    expectedBasketItemId: string,
+    resultConversationId: string,
   ) {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
@@ -554,64 +802,182 @@ export class PaymentsService {
       throw new NotFoundException('Order not found');
     }
 
-    const paymentStatus = String(result.paymentStatus || '').toUpperCase();
+    const paymentStatus = String(result.paymentStatus ?? '').toUpperCase();
+    const iyzicoPaymentId = String(result.paymentId ?? '').trim();
+
+    const currentAttempt = await this.prisma.paymentAttempt.findFirst({
+      where: {
+        id: paymentAttemptId,
+        orderId,
+        provider: PaymentProvider.IYZICO,
+      },
+    });
+
+    if (!currentAttempt) {
+      throw new BadRequestException('Ödeme denemesi doğrulanamadı');
+    }
+
+    if (currentAttempt.status === PaymentStatus.SUCCESS) {
+      const storedPaymentId = String(currentAttempt.iyzicoPaymentId ?? '').trim();
+
+      if (
+        !storedPaymentId ||
+        !iyzicoPaymentId ||
+        storedPaymentId !== iyzicoPaymentId
+      ) {
+        throw new BadRequestException(
+          'Başarılı ödeme denemesinin iyzico kimliği eşleşmiyor',
+        );
+      }
+    }
+
+    if (
+      currentAttempt.status === PaymentStatus.SUCCESS &&
+      paymentStatus !== 'SUCCESS'
+    ) {
+      throw new BadRequestException(
+        'Başarılı ödeme için iyzico durumu değişti; mutabakat gerekli',
+      );
+    }
 
     if (paymentStatus !== 'SUCCESS') {
-      await this.prisma.paymentAttempt.updateMany({
-        where: {
-          orderId: order.id,
-          checkoutToken: token,
-        },
-        data: {
-          status: PaymentStatus.FAILED,
-          rawResponse: this.safeIyzicoResult(result),
-        },
-      });
+      await this.markPaymentAttemptFailed(
+        paymentAttemptId,
+        result,
+      );
 
       throw new BadRequestException('IyziCo ödeme onayı başarısız');
     }
 
+    if (!iyzicoPaymentId) {
+      await this.markPaymentAttemptFailed(
+        paymentAttemptId,
+        result,
+      );
+
+      throw new BadRequestException(
+        'iyzico ödeme kimliği doğrulanamadı',
+      );
+    }
+
     const receivedAmount = new Prisma.Decimal(
-      result.paidPrice ?? result.price ?? 0,
+      result.price ?? 0,
     );
 
     const expectedAmount = new Prisma.Decimal(order.totalAmount);
 
+    if (
+      currentAttempt.status === PaymentStatus.SUCCESS &&
+      !receivedAmount.equals(expectedAmount)
+    ) {
+      throw new BadRequestException(
+        'Başarılı ödemenin tutarı değişti; mutabakat gerekli',
+      );
+    }
+
     if (!receivedAmount.equals(expectedAmount)) {
-      await this.prisma.paymentAttempt.updateMany({
-        where: {
-          orderId: order.id,
-          checkoutToken: token,
-        },
-        data: {
-          status: PaymentStatus.FAILED,
-          rawResponse: this.safeIyzicoResult(result),
-        },
-      });
+      await this.markPaymentAttemptFailed(
+        paymentAttemptId,
+        result,
+      );
 
       throw new BadRequestException(
         'Ödeme tutarı sipariş tutarıyla eşleşmiyor',
       );
     }
 
-    if (order.status !== OrderStatus.PENDING_PAYMENT) {
-      await this.prisma.paymentAttempt.updateMany({
-        where: {
-          orderId: order.id,
-          checkoutToken: token,
-        },
-        data: {
-          status: PaymentStatus.SUCCESS,
-          iyzicoPaymentId: result.paymentId ?? null,
-          rawResponse: this.safeIyzicoResult(result),
-        },
-      });
+    const fraudStatus = Number(result.fraudStatus);
+
+    if (
+      currentAttempt.status === PaymentStatus.SUCCESS &&
+      fraudStatus !== 1
+    ) {
+      throw new BadRequestException(
+        'Başarılı ödemenin risk durumu değişti; mutabakat gerekli',
+      );
+    }
+
+    if (fraudStatus === 0) {
+      await this.markPaymentAttemptReview(
+        paymentAttemptId,
+        result,
+        iyzicoPaymentId,
+      );
 
       return {
-        message: 'Order zaten işlenmiş',
+        message: 'Ödeme iyzico risk incelemesinde',
         orderId: order.id,
         status: order.status,
+        paymentStatus: PaymentStatus.REVIEW,
       };
+    }
+
+    if (fraudStatus !== 1) {
+      await this.markPaymentAttemptFailed(
+        paymentAttemptId,
+        result,
+        iyzicoPaymentId,
+      );
+
+      throw new BadRequestException(
+        'IyziCo risk kontrolü ödeme işlemini onaylamadı',
+      );
+    }
+
+    const itemTransactions = Array.isArray(result.itemTransactions)
+      ? result.itemTransactions
+      : [];
+
+    if (itemTransactions.length !== 1) {
+      throw new BadRequestException(
+        'iyzico işlem satırı sayısı doğrulanamadı',
+      );
+    }
+
+    const itemTransaction = itemTransactions[0];
+    const receivedItemId = String(itemTransaction?.itemId ?? '').trim();
+    const paymentTransactionId = String(
+      itemTransaction?.paymentTransactionId ?? '',
+    ).trim();
+
+    if (
+      receivedItemId !== expectedBasketItemId ||
+      !paymentTransactionId
+    ) {
+      throw new BadRequestException(
+        'iyzico işlem satırı siparişle doğrulanamadı',
+      );
+    }
+
+    const postPaymentStatuses: OrderStatus[] = [
+      OrderStatus.PAID,
+      OrderStatus.PREPARING,
+      OrderStatus.SHIPPED,
+      OrderStatus.COMPLETED,
+    ];
+
+    if (
+      currentAttempt.status === PaymentStatus.SUCCESS &&
+      !postPaymentStatuses.includes(order.status)
+    ) {
+      throw new BadRequestException(
+        'Başarılı ödeme ile sipariş durumu tutarsız; mutabakat gerekli',
+      );
+    }
+
+    if (order.status === OrderStatus.CANCELLED) {
+      throw new BadRequestException(
+        'İptal edilmiş sipariş için ödeme işlenemez',
+      );
+    }
+
+    if (
+      order.status !== OrderStatus.PENDING_PAYMENT &&
+      !postPaymentStatuses.includes(order.status)
+    ) {
+      throw new BadRequestException(
+        'Sipariş durumu ödeme işlemi için geçerli değil',
+      );
     }
 
     const escrowAmount = new Prisma.Decimal(order.escrowAmount);
@@ -628,41 +994,97 @@ export class PaymentsService {
         },
         data: {
           status: OrderStatus.PAID,
-          iyzicoConversationId: result.conversationId ?? null,
+          iyzicoConversationId: resultConversationId,
           iyzicoCheckoutToken: token,
-          iyzicoPaymentId: result.paymentId ?? null,
+          iyzicoPaymentId,
           iyzicoPaidAt: new Date(),
           iyzicoRawResult: this.safeIyzicoResult(result),
         },
       });
 
       if (claimed.count === 0) {
-        await tx.paymentAttempt.updateMany({
-          where: {
-            orderId: order.id,
-            checkoutToken: token,
-          },
-          data: {
-            status: PaymentStatus.SUCCESS,
-            iyzicoPaymentId: result.paymentId ?? null,
-            rawResponse: this.safeIyzicoResult(result),
-          },
-        });
-
         const currentOrder = await tx.order.findUnique({
           where: { id: order.id },
         });
 
+        if (!currentOrder) {
+          throw new BadRequestException('Sipariş bulunamadı');
+        }
+
+        if (
+          currentOrder.status === OrderStatus.CANCELLED ||
+          !postPaymentStatuses.includes(currentOrder.status)
+        ) {
+          throw new BadRequestException(
+            'Sipariş ödeme sırasında başka bir duruma geçti',
+          );
+        }
+
+        const existingPaymentTransaction =
+          await tx.paymentTransaction.findUnique({
+            where: {
+              paymentTransactionId,
+            },
+          });
+
+        const samePayment =
+          currentOrder.iyzicoPaymentId === iyzicoPaymentId &&
+          currentOrder.iyzicoCheckoutToken === token &&
+          currentOrder.iyzicoConversationId ===
+            resultConversationId &&
+          existingPaymentTransaction?.orderId === currentOrder.id &&
+          existingPaymentTransaction?.sellerId === currentOrder.sellerId &&
+          existingPaymentTransaction !== null &&
+          new Prisma.Decimal(existingPaymentTransaction.amount).equals(
+            expectedAmount,
+          );
+
+        if (!samePayment) {
+          throw new BadRequestException(
+            'Eşzamanlı ödeme işlemi mevcut siparişle doğrulanamadı',
+          );
+        }
+
+        await this.markPaymentAttemptSuccess(
+          tx,
+          paymentAttemptId,
+          result,
+          iyzicoPaymentId,
+        );
+
         return {
-          message: 'Order zaten işlenmiş',
-          orderId: order.id,
-          status: currentOrder?.status,
+          message: 'Order zaten aynı iyzico ödemesiyle işlenmiş',
+          orderId: currentOrder.id,
+          status: currentOrder.status,
           newlyPaid: false,
         };
       }
 
+      const existingPaymentTransaction =
+        await tx.paymentTransaction.findUnique({
+          where: {
+            paymentTransactionId,
+          },
+        });
+
+      if (existingPaymentTransaction) {
+        throw new BadRequestException(
+          'iyzico işlem kimliği daha önce kaydedilmiş; mutabakat gerekli',
+        );
+      }
+
       await this.ensureWallet(tx, order.buyerId);
       await this.ensureWallet(tx, order.sellerId);
+
+      await tx.paymentTransaction.create({
+        data: {
+          orderId: order.id,
+          sellerId: order.sellerId,
+          paymentTransactionId,
+          amount: expectedAmount,
+          status: 'SUCCESS',
+        },
+      });
 
       await tx.companyWallet.update({
         where: {
@@ -675,37 +1097,6 @@ export class PaymentsService {
         },
       });
 
-      await tx.paymentAttempt.updateMany({
-        where: {
-          orderId: order.id,
-          checkoutToken: token,
-        },
-        data: {
-          status: PaymentStatus.SUCCESS,
-          iyzicoPaymentId: result.paymentId ?? null,
-          rawResponse: this.safeIyzicoResult(result),
-        },
-      });
-
-      const paymentTransactionId = result.paymentId || `iyzico-token-${token}`;
-
-      await tx.paymentTransaction.upsert({
-        where: {
-          paymentTransactionId,
-        },
-        create: {
-          orderId: order.id,
-          sellerId: order.sellerId,
-          paymentTransactionId,
-          amount: expectedAmount,
-          status: 'SUCCESS',
-        },
-        update: {
-          status: 'SUCCESS',
-          amount: expectedAmount,
-        },
-      });
-
       await tx.ledgerEntry.create({
         data: {
           orderId: order.id,
@@ -715,7 +1106,8 @@ export class PaymentsService {
           note: 'IyziCo payment deposited into escrow',
           meta: {
             token,
-            paymentId: result.paymentId ?? null,
+            paymentId: iyzicoPaymentId,
+            paymentTransactionId,
           },
         },
       });
@@ -729,10 +1121,18 @@ export class PaymentsService {
           note: 'Platform commission reserved',
           meta: {
             token,
-            paymentId: result.paymentId ?? null,
+            paymentId: iyzicoPaymentId,
+            paymentTransactionId,
           },
         },
       });
+
+      await this.markPaymentAttemptSuccess(
+        tx,
+        paymentAttemptId,
+        result,
+        iyzicoPaymentId,
+      );
 
       const updatedOrder = await tx.order.findUnique({
         where: {
