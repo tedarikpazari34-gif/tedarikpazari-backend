@@ -54,6 +54,7 @@ export class CompanyService {
         banner: true,
           taxNumber: true,
           paymentIdentityNumber: true,
+          iyzicoSubMerchantKey: true,
           taxOffice: true,
           address: true,
         verified: true,
@@ -67,11 +68,16 @@ export class CompanyService {
       throw new NotFoundException('Şirket bulunamadı');
     }
 
-    const { paymentIdentityNumber, ...safeCompany } = company;
+    const {
+      paymentIdentityNumber,
+      iyzicoSubMerchantKey,
+      ...safeCompany
+    } = company;
 
     return {
       ...safeCompany,
       hasPaymentIdentityNumber: Boolean(paymentIdentityNumber),
+      iyzicoOnboardingCompleted: Boolean(iyzicoSubMerchantKey),
     };
   }
 
