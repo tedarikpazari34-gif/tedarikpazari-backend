@@ -52,25 +52,27 @@ async function bootstrap() {
   /**
    * SWAGGER CONFIG
    */
-  const config = new DocumentBuilder()
-    .setTitle('B2B Marketplace API')
-    .setDescription('Production Level Escrow + RFQ + Dispute + Ledger System')
-    .setVersion('1.0')
-    .addBearerAuth({
-      type: 'http',
-      scheme: 'bearer',
-      bearerFormat: 'JWT',
-      description: 'JWT Authorization token',
-    })
-    .build();
+  if (process.env.NODE_ENV !== 'production') {
+    const config = new DocumentBuilder()
+      .setTitle('B2B Marketplace API')
+      .setDescription('Production Level Escrow + RFQ + Dispute + Ledger System')
+      .setVersion('1.0')
+      .addBearerAuth({
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        description: 'JWT Authorization token',
+      })
+      .build();
 
-  const document = SwaggerModule.createDocument(app, config);
+    const document = SwaggerModule.createDocument(app, config);
 
-  SwaggerModule.setup('docs', app, document, {
-    swaggerOptions: {
-      persistAuthorization: true,
-    },
-  });
+    SwaggerModule.setup('docs', app, document, {
+      swaggerOptions: {
+        persistAuthorization: true,
+      },
+    });
+  }
 
   /**
    * SERVER START
