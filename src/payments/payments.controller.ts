@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   Param,
   Post,
   Req,
@@ -33,6 +34,16 @@ export class PaymentsController {
   @ApiOperation({ summary: 'Initialize iyzico checkout' })
   initialize(@Req() req: any, @Param('orderId') orderId: string) {
     return this.payments.initializeIyzico(req.user, orderId, req.ip);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('iyzico/inspect/:paymentAttemptId')
+  @ApiOperation({ summary: 'Inspect an existing iyzico payment attempt without modifying it' })
+  inspect(
+    @Req() req: any,
+    @Param('paymentAttemptId') paymentAttemptId: string,
+  ) {
+    return this.payments.inspectIyzicoPayment(req.user, paymentAttemptId);
   }
 
   @UseGuards(JwtAuthGuard)

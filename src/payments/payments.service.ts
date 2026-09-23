@@ -791,6 +791,43 @@ export class PaymentsService {
     );
   }
 
+  async inspectIyzicoPayment(user: any, paymentAttemptId: string) {
+    if (user?.role !== Role.ADMIN) {
+      throw new ForbiddenException('Sadece ADMIN ödeme incelemesi yapabilir');
+    }
+
+    const attempt = await this.prisma.paymentAttempt.findFirst({
+      where: {
+        id: paymentAttemptId,
+        provider: PaymentProvider.IYZICO,
+      },
+      select: {
+        checkoutToken: true,
+        conversationId: true,
+      },
+    });
+
+    if (!attempt) {
+      throw new NotFoundException('Ödeme denemesi bulunamadı');
+    }
+
+    const token = String(attempt.checkoutToken ?? '').trim();
+    const conversationId = String(attempt.conversationId ?? '').trim();
+
+    if (!token || !conversationId) {
+      throw new BadRequestException(
+        'Ödeme denemesinin iyzico doğrulama bilgileri eksik',
+      );
+    }
+
+    const result = await this.iyzico.retrieveCheckoutForm(
+      token,
+      conversationId,
+    );
+
+    return this.safeIyzicoResult(result);
+  }
+
   async reconcileIyzicoPayment(user: any, paymentAttemptId: string) {
     if (user?.role !== Role.ADMIN) {
       throw new ForbiddenException('Sadece ADMIN ödeme mutabakatı yapabilir');
