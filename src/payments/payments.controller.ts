@@ -54,7 +54,10 @@ export class PaymentsController {
 
       return res.redirect(303, `${frontendUrl}/buyer/orders?payment=success`);
     } catch (error) {
-      console.error('IYZICO CALLBACK ERROR');
+      const safeError =
+        error instanceof Error ? error.message : 'Bilinmeyen callback hatası';
+
+      console.error('IYZICO CALLBACK ERROR:', safeError);
 
       const frontendUrl =
         process.env.FRONTEND_URL || 'https://xn--tedarikpazar-d5b.com';
