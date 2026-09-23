@@ -44,11 +44,17 @@ export class IyzicoService {
     }
   }
 
-  async retrieveCheckoutForm(token: string): Promise<any> {
+  async retrieveCheckoutForm(
+    token: string,
+    conversationId?: string,
+  ): Promise<any> {
     try {
       const result: any = await new Promise((resolve, reject) => {
         this.iyzipay.checkoutForm.retrieve(
-          { token },
+          {
+            token,
+            ...(conversationId ? { conversationId } : {}),
+          },
           (err: any, res: any) => {
             if (err) {
               return reject(err);

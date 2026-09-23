@@ -706,12 +706,6 @@ export class PaymentsService {
       throw new BadRequestException('token zorunlu');
     }
 
-    const result: any = await this.iyzico.retrieveCheckoutForm(token.trim());
-
-    if (!result || result.status !== 'success') {
-      throw new BadRequestException('IyziCo ödeme doğrulanamadı');
-    }
-
     const normalizedToken = token.trim();
 
     const attempts = await this.prisma.paymentAttempt.findMany({
@@ -731,10 +725,25 @@ export class PaymentsService {
     }
 
     const attempt = attempts[0];
+    const expectedConversationId = String(attempt.conversationId ?? '').trim();
+
+    if (!expectedConversationId) {
+      throw new BadRequestException(
+        'Ödeme denemesinin conversationId kaydı bulunamadı',
+      );
+    }
+
+    const result: any = await this.iyzico.retrieveCheckoutForm(
+      normalizedToken,
+      expectedConversationId,
+    );
+
+    if (!result || result.status !== 'success') {
+      throw new BadRequestException('IyziCo ödeme doğrulanamadı');
+    }
 
     const basketOrderId = String(result.basketId ?? '').trim();
     const resultConversationId = String(result.conversationId ?? '').trim();
-    const expectedConversationId = String(attempt.conversationId ?? '').trim();
 
     if (!basketOrderId || basketOrderId !== attempt.orderId) {
       throw new BadRequestException(
