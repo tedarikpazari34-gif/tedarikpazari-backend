@@ -64,6 +64,18 @@ export class PaymentsService {
             transactionStatus: item.transactionStatus ?? null,
             price: item.price ?? null,
             paidPrice: item.paidPrice ?? null,
+            subMerchantPrice: item.subMerchantPrice ?? null,
+            subMerchantPayoutAmount: item.subMerchantPayoutAmount ?? null,
+            merchantPayoutAmount: item.merchantPayoutAmount ?? null,
+            iyziCommissionFee: item.iyziCommissionFee ?? null,
+            iyziCommissionRateAmount: item.iyziCommissionRateAmount ?? null,
+            merchantCommissionRateAmount:
+              item.merchantCommissionRateAmount ?? null,
+            blockageRate: item.blockageRate ?? null,
+            blockageRateAmountMerchant:
+              item.blockageRateAmountMerchant ?? null,
+            blockageRateAmountSubMerchant:
+              item.blockageRateAmountSubMerchant ?? null,
           }))
         : [],
       errorCode: result.errorCode ?? null,
