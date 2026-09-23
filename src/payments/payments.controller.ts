@@ -35,6 +35,16 @@ export class PaymentsController {
     return this.payments.initializeIyzico(req.user, orderId, req.ip);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Post('iyzico/reconcile/:paymentAttemptId')
+  @ApiOperation({ summary: 'Reconcile an existing iyzico payment attempt' })
+  reconcile(
+    @Req() req: any,
+    @Param('paymentAttemptId') paymentAttemptId: string,
+  ) {
+    return this.payments.reconcileIyzicoPayment(req.user, paymentAttemptId);
+  }
+
   @Post('iyzico/callback')
   @ApiOperation({ summary: 'iyzico callback' })
   async callback(@Body() body: { token?: string }, @Res() res: Response) {

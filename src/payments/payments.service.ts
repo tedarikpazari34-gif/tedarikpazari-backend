@@ -791,6 +791,96 @@ export class PaymentsService {
     );
   }
 
+  async reconcileIyzicoPayment(user: any, paymentAttemptId: string) {
+    if (user?.role !== Role.ADMIN) {
+      throw new ForbiddenException('Sadece ADMIN ödeme mutabakatı yapabilir');
+    }
+
+    const attempt = await this.prisma.paymentAttempt.findFirst({
+      where: {
+        id: paymentAttemptId,
+        provider: PaymentProvider.IYZICO,
+      },
+    });
+
+    if (!attempt) {
+      throw new NotFoundException('Ödeme denemesi bulunamadı');
+    }
+
+    const token = String(attempt.checkoutToken ?? '').trim();
+    const expectedConversationId = String(
+      attempt.conversationId ?? '',
+    ).trim();
+
+    if (!token || !expectedConversationId) {
+      throw new BadRequestException(
+        'Ödeme denemesinin iyzico doğrulama bilgileri eksik',
+      );
+    }
+
+    const expectedBasketItemId = this.getExpectedBasketItemId(
+      attempt.rawRequest,
+    );
+
+    if (!expectedBasketItemId) {
+      throw new BadRequestException(
+        'Ödeme denemesinin basket item kaydı doğrulanamadı',
+      );
+    }
+
+    const result: any = await this.iyzico.retrieveCheckoutForm(
+      token,
+      expectedConversationId,
+    );
+
+    if (!result || result.status !== 'success') {
+      const safeResult = this.safeIyzicoResult(result);
+
+      return {
+        reconciled: false,
+        message: 'iyzico ödeme sonucu doğrulanamadı',
+        result: safeResult,
+      };
+    }
+
+    const basketOrderId = String(result.basketId ?? '').trim();
+    const resultConversationId = String(result.conversationId ?? '').trim();
+
+    if (!basketOrderId || basketOrderId !== attempt.orderId) {
+      throw new BadRequestException(
+        'iyzico basketId ile ödeme denemesi siparişi eşleşmiyor',
+      );
+    }
+
+    if (
+      !resultConversationId ||
+      resultConversationId !== expectedConversationId
+    ) {
+      throw new BadRequestException(
+        'iyzico conversationId ile ödeme denemesi eşleşmiyor',
+      );
+    }
+
+    await this.prisma.paymentAttempt.updateMany({
+      where: {
+        id: attempt.id,
+        callbackVerifiedAt: null,
+      },
+      data: {
+        callbackVerifiedAt: new Date(),
+      },
+    });
+
+    return this.processSuccessfulPayment(
+      attempt.id,
+      attempt.orderId,
+      token,
+      result,
+      expectedBasketItemId,
+      resultConversationId,
+    );
+  }
+
   /**
    * Ödeme başarılıysa tek noktadan işle
    * - idempotent: order zaten PAID ise tekrar yapma
