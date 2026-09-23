@@ -825,7 +825,17 @@ export class PaymentsService {
       conversationId,
     );
 
-    return this.safeIyzicoResult(result);
+    const safeResult = this.safeIyzicoResult(result);
+
+    return {
+      ...safeResult,
+      providerFieldNames: Object.keys(result).sort(),
+      itemTransactionFieldNames: Array.isArray(result.itemTransactions)
+        ? result.itemTransactions.map((item: any) =>
+            item && typeof item === 'object' ? Object.keys(item).sort() : [],
+          )
+        : [],
+    };
   }
 
   async reconcileIyzicoPayment(user: any, paymentAttemptId: string) {
