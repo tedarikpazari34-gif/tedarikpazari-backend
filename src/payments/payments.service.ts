@@ -219,7 +219,7 @@ export class PaymentsService {
   private async markPaymentAttemptReview(
     paymentAttemptId: string,
     result: any,
-    iyzicoPaymentId: string,
+    iyzicoPaymentId?: string,
   ) {
     const safeResult = this.safeIyzicoResult(result);
 
@@ -254,7 +254,7 @@ export class PaymentsService {
         },
         data: {
           status: PaymentStatus.REVIEW,
-          iyzicoPaymentId,
+          ...(iyzicoPaymentId ? { iyzicoPaymentId } : {}),
           rawResponse: safeResult,
         },
       });
@@ -632,20 +632,6 @@ export class PaymentsService {
       ],
     };
 
-    const result = await this.iyzico.createCheckoutFormInitialize(request);
-
-    if (!result || result.status !== 'success') {
-      throw new BadRequestException('IyziCo ödeme başlatılamadı');
-    }
-
-    const checkoutToken = String(result.token ?? '').trim();
-
-    if (!checkoutToken) {
-      throw new BadRequestException(
-        'IyziCo ödeme başlatma yanıtında geçerli token alınamadı',
-      );
-    }
-
     const sanitizedRequest = {
       locale: request.locale,
       conversationId: request.conversationId,
@@ -666,18 +652,122 @@ export class PaymentsService {
       })),
     };
 
-    // ✅ PaymentAttempt kaydı aç (token/order bağını burada tutuyoruz)
-    await this.prisma.paymentAttempt.create({
-      data: {
-        orderId: order.id,
-        provider: PaymentProvider.IYZICO,
-        status: PaymentStatus.INITIATED,
-        conversationId,
-        checkoutToken,
-        rawRequest: sanitizedRequest,
-        rawResponse: this.safeIyzicoResult(result),
-      },
+    const paymentAttempt = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`
+        SELECT pg_advisory_xact_lock(
+          hashtextextended(${'iyzico-init:' + order.id}, 0)
+        )::text
+      `;
+
+      const currentOrder = await tx.order.findUnique({
+        where: { id: order.id },
+        select: { status: true },
+      });
+
+      if (
+        !currentOrder ||
+        currentOrder.status !== OrderStatus.PENDING_PAYMENT
+      ) {
+        throw new BadRequestException('Order ödeme beklemiyor');
+      }
+
+      const activeAttempt = await tx.paymentAttempt.findFirst({
+        where: {
+          orderId: order.id,
+          provider: PaymentProvider.IYZICO,
+          status: {
+            in: [
+              PaymentStatus.INITIATED,
+              PaymentStatus.CALLBACK_RECEIVED,
+              PaymentStatus.REVIEW,
+            ],
+          },
+        },
+        select: {
+          id: true,
+          status: true,
+        },
+      });
+
+      if (activeAttempt) {
+        throw new BadRequestException(
+          activeAttempt.status === PaymentStatus.REVIEW
+            ? 'Önceki ödeme başlatma işleminin sonucu belirsiz; yeni ödeme başlatılmadan önce mutabakat gerekli'
+            : 'Bu sipariş için devam eden bir ödeme başlatma işlemi zaten mevcut',
+        );
+      }
+
+      return tx.paymentAttempt.create({
+        data: {
+          orderId: order.id,
+          provider: PaymentProvider.IYZICO,
+          status: PaymentStatus.INITIATED,
+          conversationId,
+          rawRequest: sanitizedRequest,
+        },
+      });
     });
+
+    let result: any;
+
+    try {
+      result = await this.iyzico.createCheckoutFormInitialize(request);
+    } catch (error) {
+      await this.markPaymentAttemptReview(paymentAttempt.id, {
+        status: 'unknown',
+        errorGroup: 'checkout_initialize_transport',
+      });
+      throw error;
+    }
+
+    if (!result || result.status !== 'success') {
+      await this.markPaymentAttemptFailed(paymentAttempt.id, result);
+      throw new BadRequestException('IyziCo ödeme başlatılamadı');
+    }
+
+    const checkoutToken = String(result.token ?? '').trim();
+
+    if (!checkoutToken) {
+      await this.markPaymentAttemptReview(paymentAttempt.id, result);
+      throw new BadRequestException(
+        'IyziCo ödeme başlatma yanıtında geçerli token alınamadı; mutabakat gerekli',
+      );
+    }
+
+    let tokenStored = false;
+
+    try {
+      const persisted = await this.prisma.paymentAttempt.updateMany({
+        where: {
+          id: paymentAttempt.id,
+          status: PaymentStatus.INITIATED,
+          checkoutToken: null,
+        },
+        data: {
+          checkoutToken,
+          rawResponse: this.safeIyzicoResult(result),
+        },
+      });
+
+      tokenStored = persisted.count === 1;
+    } catch {
+      try {
+        await this.markPaymentAttemptReview(paymentAttempt.id, result);
+      } catch {
+        // Attempt zaten terminal duruma geçmiş olabilir; asıl persist hatasını gizleme.
+      }
+
+      throw new InternalServerErrorException(
+        'Ödeme oturumu güvenli şekilde kaydedilemedi; mutabakat gerekli',
+      );
+    }
+
+    if (!tokenStored) {
+      await this.markPaymentAttemptReview(paymentAttempt.id, result);
+      throw new InternalServerErrorException(
+        'Ödeme oturumu güvenli şekilde kaydedilemedi; mutabakat gerekli',
+      );
+    }
 
     // (Opsiyonel) Order üzerinde de debug alanı tutmak istersen:
     // await this.prisma.order.update({ where:{id:order.id}, data:{ iyzicoConversationId: conversationId } });
