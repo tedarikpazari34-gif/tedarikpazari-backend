@@ -753,6 +753,8 @@ model PaymentTransaction {
   paymentTransactionId String   @unique
   amount               Decimal
   status               String
+  iyzicoApprovedAt     DateTime?
+  iyzicoApprovalResult Json?
   createdAt            DateTime @default(now())
 
   order  Order   @relation(fields: [orderId], references: [id])

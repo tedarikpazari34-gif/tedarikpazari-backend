@@ -6,11 +6,12 @@ import {
 } from '@nestjs/common';
 
 import { PrismaService } from '../prisma/prisma.service';
-import { LedgerType, OrderStatus, Prisma, Role } from '@prisma/client';
+import { DisputeStatus, LedgerType, OrderStatus, Prisma, Role } from '@prisma/client';
 import { NotificationService } from '../notification/notification.service';
 import { MailService } from '../mail/mail.service';
 import { ShipOrderDto } from './dto/ship-order.dto';
 import { CreateDirectOrderDto } from './dto/create-direct-order.dto';
+import { IyzicoService } from '../payments/iyzico.service';
 
 @Injectable()
 export class OrderService {
@@ -18,6 +19,7 @@ export class OrderService {
   private prisma: PrismaService,
   private notificationService: NotificationService,
   private mailService: MailService,
+  private readonly iyzico: IyzicoService,
 ) {}
 
   private async ensureWallet(tx: Prisma.TransactionClient, companyId: string) {
@@ -592,6 +594,69 @@ async complete(user: any, orderId: string) {
 
   if (order.escrowReleased) {
     throw new BadRequestException('Escrow zaten serbest bırakılmış');
+  }
+
+  const activeDispute = await this.prisma.dispute.findFirst({
+    where: {
+      orderId: order.id,
+      status: {
+        in: [DisputeStatus.OPEN, DisputeStatus.SELLER_RESPONDED],
+      },
+    },
+    select: { id: true },
+  });
+
+  if (activeDispute) {
+    throw new BadRequestException(
+      'Açık uyuşmazlık bulunan sipariş tamamlanamaz',
+    );
+  }
+
+  const paymentTransaction = await this.prisma.paymentTransaction.findFirst({
+    where: {
+      orderId: order.id,
+      status: 'SUCCESS',
+    },
+  });
+
+  if (!paymentTransaction) {
+    throw new BadRequestException(
+      'Sipariş için başarılı iyzico işlem kaydı bulunamadı',
+    );
+  }
+
+  if (!order.iyzicoPaymentId) {
+    throw new BadRequestException(
+      'Siparişin iyzico ödeme kimliği bulunamadı',
+    );
+  }
+
+  const iyzicoAlreadyApproved = Boolean(
+    paymentTransaction.iyzicoApprovedAt,
+  );
+
+  if (!iyzicoAlreadyApproved) {
+    const approvalResult = await this.iyzico.approvePaymentItem(
+      paymentTransaction.paymentTransactionId,
+      order.iyzicoConversationId ?? undefined,
+    );
+
+    if (approvalResult?.status !== 'success') {
+      throw new BadRequestException(
+        approvalResult?.errorMessage ||
+          'iyzico satıcı ödeme onayı başarısız',
+      );
+    }
+
+    await this.prisma.paymentTransaction.update({
+      where: {
+        paymentTransactionId: paymentTransaction.paymentTransactionId,
+      },
+      data: {
+        iyzicoApprovedAt: new Date(),
+        iyzicoApprovalResult: approvalResult,
+      },
+    });
   }
 
   const result = await this.prisma.$transaction(async (tx) => {

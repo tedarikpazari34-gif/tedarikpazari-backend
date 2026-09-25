@@ -91,6 +91,36 @@ export class IyzicoService {
     }
   }
 
+  async approvePaymentItem(
+    paymentTransactionId: string,
+    conversationId?: string,
+  ): Promise<any> {
+    try {
+      const result: any = await new Promise((resolve, reject) => {
+        this.iyzipay.approval.create(
+          {
+            locale: 'tr',
+            ...(conversationId ? { conversationId } : {}),
+            paymentTransactionId,
+          },
+          (err: any, res: any) => {
+            if (err) {
+              return reject(err);
+            }
+            resolve(res);
+          },
+        );
+      });
+
+      return result;
+    } catch (error) {
+      console.error('IYZICO APPROVAL ERROR', error);
+      throw new InternalServerErrorException(
+        'iyzico payment item approval failed',
+      );
+    }
+  }
+
   getClient() {
     return this.iyzipay;
   }
