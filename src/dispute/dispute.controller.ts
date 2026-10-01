@@ -79,7 +79,7 @@ export class DisputeController {
     if (req.user.role !== 'ADMIN') {
       throw new ForbiddenException('Sadece ADMIN resolve edebilir');
     }
-    return this.disputeService.resolve(req.user, id, body);
+    return this.disputeService.resolve(req.user, id, body, req.ip);
   }
   @UseGuards(JwtAuthGuard)
 @Post(':id/files')

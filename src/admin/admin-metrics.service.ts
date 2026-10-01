@@ -3,7 +3,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   LedgerType,
   OrderStatus,
-  PayoutStatus,
   Prisma,
   Role,
 } from '@prisma/client';
@@ -31,7 +30,6 @@ export class AdminMetricsService {
       quotesTotal,
 
       disputesOpen,
-      payoutsPending,
 
       ordersTotal,
       ordersPendingPayment,
@@ -61,7 +59,6 @@ export class AdminMetricsService {
       this.prisma.dispute.count({
         where: { status: { in: ['OPEN', 'SELLER_RESPONDED'] } } as any,
       }),
-      this.prisma.payout.count({ where: { status: PayoutStatus.PENDING } }),
 
       this.prisma.order.count(),
       this.prisma.order.count({
@@ -74,7 +71,7 @@ export class AdminMetricsService {
 
       // ✅ Tekilleştirme: ESCROW_DEPOSIT sadece "pay()" sırasında yazılacak (aşağıdaki kodlarla)
       this.sumLedger(LedgerType.ESCROW_DEPOSIT),
-      this.sumLedger(LedgerType.COMMISSION),
+      this.sumNetCommission(),
 
       this.sumWallet('available'),
       this.sumWallet('locked'),
@@ -96,7 +93,6 @@ export class AdminMetricsService {
         rfqsTotal,
         quotesTotal,
         disputesOpen,
-        payoutsPending,
       },
       orders: {
         total: ordersTotal,
@@ -135,7 +131,7 @@ export class AdminMetricsService {
 
     const dayKey = (dt: Date) => dt.toISOString().slice(0, 10);
 
-    const [orders, disputes, payoutApprovedLedger] = await Promise.all([
+    const [orders, disputes] = await Promise.all([
       this.prisma.order.findMany({
         where: { createdAt: { gte: start } },
         select: { createdAt: true },
@@ -143,10 +139,6 @@ export class AdminMetricsService {
       this.prisma.dispute.findMany({
         where: { createdAt: { gte: start } },
         select: { createdAt: true },
-      }),
-      this.prisma.ledgerEntry.findMany({
-        where: { createdAt: { gte: start }, type: LedgerType.PAYOUT_APPROVE },
-        select: { createdAt: true, amount: true },
       }),
     ]);
 
@@ -156,25 +148,8 @@ export class AdminMetricsService {
     const disputesByDay: Record<string, number> = Object.fromEntries(
       labels.map((l) => [l, 0]),
     );
-    const payoutApproveCountByDay: Record<string, number> = Object.fromEntries(
-      labels.map((l) => [l, 0]),
-    );
-    const payoutApproveSumByDay: Record<string, string> = Object.fromEntries(
-      labels.map((l) => [l, '0']),
-    );
-
     for (const o of orders) ordersByDay[dayKey(o.createdAt)]++;
     for (const d of disputes) disputesByDay[dayKey(d.createdAt)]++;
-
-    for (const p of payoutApprovedLedger) {
-      const k = dayKey(p.createdAt);
-      payoutApproveCountByDay[k]++;
-
-      const prev = new Prisma.Decimal(payoutApproveSumByDay[k]);
-      payoutApproveSumByDay[k] = prev
-        .add(new Prisma.Decimal(p.amount as any))
-        .toString();
-    }
 
     return {
       message: 'admin timeseries ok',
@@ -183,10 +158,19 @@ export class AdminMetricsService {
       series: {
         ordersCreated: labels.map((l) => ordersByDay[l]),
         disputesCreated: labels.map((l) => disputesByDay[l]),
-        payoutApprovedCount: labels.map((l) => payoutApproveCountByDay[l]),
-        payoutApprovedAmount: labels.map((l) => payoutApproveSumByDay[l]),
       },
     };
+  }
+
+  private async sumNetCommission() {
+    const [commissionTotal, reversalTotal] = await Promise.all([
+      this.sumLedger(LedgerType.COMMISSION),
+      this.sumLedger(LedgerType.COMMISSION_REVERSAL),
+    ]);
+
+    return new Prisma.Decimal(commissionTotal)
+      .minus(new Prisma.Decimal(reversalTotal))
+      .toString();
   }
 
   private async sumLedger(type: LedgerType) {

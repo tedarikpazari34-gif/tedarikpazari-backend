@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -21,12 +21,5 @@ export class AdminFinanceController {
       req.user,
       Number.isFinite(n) ? n : 50,
     );
-  }
-
-  @UseGuards(JwtAuthGuard, AdminGuard)
-  @Get('sellers/:sellerId/balance')
-  @ApiOperation({ summary: 'Get seller balance snapshot (ADMIN)' })
-  getSellerBalance(@Req() req: any, @Param('sellerId') sellerId: string) {
-    return this.adminFinanceService.getSellerBalance(req.user, sellerId);
   }
 }

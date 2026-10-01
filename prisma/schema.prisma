@@ -63,6 +63,7 @@ enum LedgerType {
   ESCROW_RELEASE_SELLER
   ESCROW_REFUND_BUYER
   COMMISSION
+  COMMISSION_REVERSAL
   PAYOUT_REQUEST
   PAYOUT_APPROVE
   PAYOUT_REJECT
@@ -125,24 +126,24 @@ enum ShippingOrderStatus {
 }
 
 model Company {
-  id                   String        @id @default(cuid())
-  name                 String
-  taxNumber            String?
-  verified             Boolean       @default(false)
-  taxOffice            String?
-  email                       String?
-  phone                       String?
-  phoneVerified               Boolean   @default(false)
-  phoneVerificationCode       String?
-  phoneVerificationExpiresAt  DateTime?
-  address                     Json?
-  status               CompanyStatus @default(PENDING)
-  role                 Role          @default(BUYER)
-  iyzicoSubMerchantKey String?
-  iyzicoIban           String?
-  iyzicoIdentityNumber String?
-  paymentIdentityNumber String?
-  createdAt            DateTime      @default(now())
+  id                         String        @id @default(cuid())
+  name                       String
+  taxNumber                  String?
+  verified                   Boolean       @default(false)
+  taxOffice                  String?
+  email                      String?
+  phone                      String?
+  phoneVerified              Boolean       @default(false)
+  phoneVerificationCode      String?
+  phoneVerificationExpiresAt DateTime?
+  address                    Json?
+  status                     CompanyStatus @default(PENDING)
+  role                       Role          @default(BUYER)
+  iyzicoSubMerchantKey       String?
+  iyzicoIban                 String?
+  iyzicoIdentityNumber       String?
+  paymentIdentityNumber      String?
+  createdAt                  DateTime      @default(now())
 
   logo           String?
   banner         String?
@@ -202,15 +203,15 @@ model CompanyWallet {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email                      String   @unique
-  emailVerified              Boolean  @default(false)
+  id                         String    @id @default(cuid())
+  email                      String    @unique
+  emailVerified              Boolean   @default(false)
   emailVerificationToken     String?
   emailVerificationExpiresAt DateTime?
   password                   String
-  role                       Role     @default(BUYER)
-  companyId String
-  createdAt DateTime @default(now())
+  role                       Role      @default(BUYER)
+  companyId                  String
+  createdAt                  DateTime  @default(now())
 
   chatMessages ChatMessage[]
   auditLogs    AuditLog[]
@@ -219,7 +220,7 @@ model User {
   notifications     Notification[]
   favorites         Favorite[]
   pushSubscriptions PushSubscription[]
-  productReports ProductReport[]
+  productReports    ProductReport[]
 }
 
 model PushSubscription {
@@ -260,10 +261,10 @@ model Product {
 
   title          String
   description    String?
-  sourceLanguage String @default("tr")
+  sourceLanguage String  @default("tr")
   imageUrl       String?
-  country     String?
-  city        String?
+  country        String?
+  city           String?
 
   unitType  String
   moq       Int
@@ -296,7 +297,6 @@ model Product {
   @@index([categoryId])
   @@index([isActive, isApproved])
 }
-
 
 model ProductTranslation {
   id          String   @id @default(cuid())
@@ -341,15 +341,14 @@ model Favorite {
   @@index([productId])
 }
 
-
 model ProductReport {
-  id         String   @id @default(cuid())
+  id         String    @id @default(cuid())
   productId  String
   reporterId String?
   reason     String
   note       String?
-  status     String   @default("OPEN")
-  createdAt  DateTime @default(now())
+  status     String    @default("OPEN")
+  createdAt  DateTime  @default(now())
   resolvedAt DateTime?
 
   product  Product @relation(fields: [productId], references: [id], onDelete: Cascade)
@@ -374,18 +373,18 @@ model ProductImage {
 }
 
 model RFQ {
-  id         String    @id @default(cuid())
-  productId  String?
-  categoryId String?
-  buyerId    String
-  title      String?
-  quantity   Int
+  id              String    @id @default(cuid())
+  productId       String?
+  categoryId      String?
+  buyerId         String
+  title           String?
+  quantity        Int
   unitType        String?
   deliveryCountry String?
   deliveryCity    String?
   note            String?
   status          RFQStatus @default(OPEN)
-  createdAt  DateTime  @default(now())
+  createdAt       DateTime  @default(now())
 
   product  Product?  @relation(fields: [productId], references: [id])
   category Category? @relation(fields: [categoryId], references: [id])
@@ -448,11 +447,12 @@ model Order {
   shippingCompany    String?
   shippedAt          DateTime?
 
-  iyzicoConversationId String?
-  iyzicoCheckoutToken  String?
-  iyzicoPaymentId      String?
-  iyzicoPaidAt         DateTime?
-  iyzicoRawResult      Json?
+  iyzicoConversationId     String?
+  iyzicoCheckoutToken      String?
+  iyzicoPaymentId          String?
+  iyzicoPaymentTransactionId String? @unique
+  iyzicoPaidAt             DateTime?
+  iyzicoRawResult          Json?
 
   paymentAttempts PaymentAttempt[] @relation("OrderPaymentAttempts")
 
@@ -607,9 +607,10 @@ model LedgerEntry {
   toCompanyId   String?
   amount        Decimal
   currency      String     @default("TRY")
-  note          String?
-  meta          Json?
-  createdAt     DateTime   @default(now())
+  note           String?
+  meta           Json?
+  idempotencyKey String?    @unique
+  createdAt      DateTime   @default(now())
 
   order   Order?   @relation(fields: [orderId], references: [id])
   dispute Dispute? @relation(fields: [disputeId], references: [id])
@@ -747,15 +748,20 @@ model ShippingOrder {
 }
 
 model PaymentTransaction {
-  id                   String   @id @default(cuid())
-  orderId              String
-  sellerId             String
-  paymentTransactionId String   @unique
-  amount               Decimal
-  status               String
-  iyzicoApprovedAt     DateTime?
-  iyzicoApprovalResult Json?
-  createdAt            DateTime @default(now())
+  id                      String    @id @default(cuid())
+  orderId                 String
+  sellerId                String
+  paymentTransactionId    String    @unique
+  amount                  Decimal
+  status                  String
+  iyzicoApprovedAt        DateTime?
+  iyzicoApprovalPendingAt DateTime?
+  iyzicoApprovalResult    Json?
+  iyzicoRefundedAmount    Decimal   @default(0)
+  iyzicoRefundPendingAt   DateTime?
+  iyzicoRefundedAt        DateTime?
+  iyzicoRefundResult      Json?
+  createdAt               DateTime  @default(now())
 
   order  Order   @relation(fields: [orderId], references: [id])
   seller Company @relation(fields: [sellerId], references: [id])

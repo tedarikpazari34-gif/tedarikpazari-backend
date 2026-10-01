@@ -12,7 +12,6 @@ import { QuoteModule } from './quote/quote.module';
 import { OrderModule } from './order/order.module';
 
 import { AdminModule } from './admin/admin.module';
-import { PayoutModule } from './payout/payout.module';
 import { DisputeModule } from './dispute/dispute.module';
 
 import { WalletModule } from './wallet/wallet.module';
@@ -50,7 +49,6 @@ import { AiModule } from './ai/ai.module';
     PaymentsModule,
     WalletModule,
     FavoriteModule,
-    PayoutModule,
 
     AdminModule,
     DisputeModule,

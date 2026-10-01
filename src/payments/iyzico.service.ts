@@ -114,9 +114,108 @@ export class IyzicoService {
 
       return result;
     } catch (error) {
-      console.error('IYZICO APPROVAL ERROR', error);
+      console.error('IYZICO APPROVAL ERROR');
       throw new InternalServerErrorException(
         'iyzico payment item approval failed',
+      );
+    }
+  }
+
+  async disapprovePaymentItem(
+    paymentTransactionId: string,
+    conversationId?: string,
+  ): Promise<any> {
+    try {
+      const result: any = await new Promise((resolve, reject) => {
+        this.iyzipay.disapproval.create(
+          {
+            locale: 'tr',
+            ...(conversationId ? { conversationId } : {}),
+            paymentTransactionId,
+          },
+          (err: any, res: any) => {
+            if (err) {
+              return reject(err);
+            }
+            resolve(res);
+          },
+        );
+      });
+
+      return result;
+    } catch (error) {
+      console.error('IYZICO DISAPPROVAL ERROR');
+      throw new InternalServerErrorException(
+        'iyzico payment item disapproval failed',
+      );
+    }
+  }
+
+  async refundPaymentItem(
+    paymentTransactionId: string,
+    price: string,
+    ip: string,
+    conversationId?: string,
+    description?: string,
+  ): Promise<any> {
+    try {
+      const result: any = await new Promise((resolve, reject) => {
+        this.iyzipay.refund.create(
+          {
+            locale: 'tr',
+            ...(conversationId ? { conversationId } : {}),
+            paymentTransactionId,
+            price,
+            currency: 'TRY',
+            ip,
+            reason: 'other',
+            ...(description ? { description } : {}),
+          },
+          (err: any, res: any) => {
+            if (err) {
+              return reject(err);
+            }
+            resolve(res);
+          },
+        );
+      });
+
+      return result;
+    } catch (error) {
+      console.error('IYZICO REFUND ERROR');
+      throw new InternalServerErrorException(
+        'iyzico payment item refund failed',
+      );
+    }
+  }
+
+  async updatePaymentItemSubMerchantPrice(
+    subMerchantKey: string,
+    paymentTransactionId: string,
+    subMerchantPrice: string,
+  ): Promise<any> {
+    try {
+      const result: any = await new Promise((resolve, reject) => {
+        this.iyzipay.paymentItem.update(
+          {
+            subMerchantKey,
+            paymentTransactionId,
+            subMerchantPrice,
+          },
+          (err: any, res: any) => {
+            if (err) {
+              return reject(err);
+            }
+            resolve(res);
+          },
+        );
+      });
+
+      return result;
+    } catch (error) {
+      console.error('IYZICO PAYMENT ITEM UPDATE ERROR');
+      throw new InternalServerErrorException(
+        'iyzico payment item update failed',
       );
     }
   }

@@ -1,5 +1,5 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
-import { PayoutStatus, Role } from '@prisma/client';
+import { Role } from '@prisma/client';
 
 import { ChatGateway } from '../chat/chat.gateway';
 import { PrismaService } from '../prisma/prisma.service';
@@ -31,7 +31,6 @@ export class AdminControlCenterService {
       pendingCompanies,
       pendingProducts,
       openDisputes,
-      pendingPayouts,
       flaggedMessages,
     ] = await Promise.all([
       this.prisma.company.count({
@@ -46,9 +45,6 @@ export class AdminControlCenterService {
             in: ['OPEN', 'SELLER_RESPONDED'],
           },
         } as any,
-      }),
-      this.prisma.payout.count({
-        where: { status: PayoutStatus.PENDING },
       }),
       this.prisma.chatMessage.count({
         where: { isFlagged: true },
@@ -103,13 +99,11 @@ export class AdminControlCenterService {
         pendingCompanies,
         pendingProducts,
         openDisputes,
-        pendingPayouts,
         flaggedMessages,
         total:
           pendingCompanies +
           pendingProducts +
           openDisputes +
-          pendingPayouts +
           flaggedMessages,
       },
     };

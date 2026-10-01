@@ -1245,6 +1245,7 @@ export class PaymentsService {
           iyzicoConversationId: resultConversationId,
           iyzicoCheckoutToken: token,
           iyzicoPaymentId,
+          iyzicoPaymentTransactionId: paymentTransactionId,
           iyzicoPaidAt: new Date(),
           iyzicoRawResult: this.safeIyzicoResult(result),
         },
@@ -1277,6 +1278,7 @@ export class PaymentsService {
 
         const samePayment =
           currentOrder.iyzicoPaymentId === iyzicoPaymentId &&
+          currentOrder.iyzicoPaymentTransactionId === paymentTransactionId &&
           currentOrder.iyzicoCheckoutToken === token &&
           currentOrder.iyzicoConversationId ===
             resultConversationId &&
@@ -1353,7 +1355,6 @@ export class PaymentsService {
           currency: 'TRY',
           note: 'IyziCo payment deposited into escrow',
           meta: {
-            token,
             paymentId: iyzicoPaymentId,
             paymentTransactionId,
           },
@@ -1368,7 +1369,6 @@ export class PaymentsService {
           currency: 'TRY',
           note: 'Platform commission reserved',
           meta: {
-            token,
             paymentId: iyzicoPaymentId,
             paymentTransactionId,
           },

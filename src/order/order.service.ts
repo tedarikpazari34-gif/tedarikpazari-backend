@@ -35,6 +35,21 @@ export class OrderService {
   }
 
 
+  private safeIyzicoApprovalResult(result: any) {
+    if (!result || typeof result !== 'object') {
+      return null;
+    }
+
+    return {
+      status: result.status ?? null,
+      conversationId: result.conversationId ?? null,
+      paymentTransactionId: result.paymentTransactionId ?? null,
+      errorCode: result.errorCode ?? null,
+      errorMessage: result.errorMessage ?? null,
+      errorGroup: result.errorGroup ?? null,
+    };
+  }
+
   async createDirect(user: any, body: CreateDirectOrderDto) {
     if (!user || user.role !== Role.BUYER) {
       throw new ForbiddenException('Sadece BUYER sipariş oluşturabilir');
@@ -596,78 +611,299 @@ async complete(user: any, orderId: string) {
     throw new BadRequestException('Escrow zaten serbest bırakılmış');
   }
 
-  const activeDispute = await this.prisma.dispute.findFirst({
-    where: {
-      orderId: order.id,
-      status: {
-        in: [DisputeStatus.OPEN, DisputeStatus.SELLER_RESPONDED],
-      },
-    },
-    select: { id: true },
-  });
+  const { paymentTransaction, iyzicoAlreadyApproved } =
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`
+        SELECT pg_advisory_xact_lock(
+          hashtextextended(${'order-lifecycle:' + order.id}, 0)
+        )::text
+      `;
 
-  if (activeDispute) {
-    throw new BadRequestException(
-      'Açık uyuşmazlık bulunan sipariş tamamlanamaz',
-    );
-  }
+      const currentOrder = await tx.order.findUnique({
+        where: { id: order.id },
+        select: {
+          buyerId: true,
+          status: true,
+          escrowReleased: true,
+          iyzicoPaymentId: true,
+          iyzicoPaymentTransactionId: true,
+        },
+      });
 
-  const paymentTransaction = await this.prisma.paymentTransaction.findFirst({
-    where: {
-      orderId: order.id,
-      status: 'SUCCESS',
-    },
-  });
+      if (!currentOrder) {
+        throw new NotFoundException('Order not found');
+      }
 
-  if (!paymentTransaction) {
-    throw new BadRequestException(
-      'Sipariş için başarılı iyzico işlem kaydı bulunamadı',
-    );
-  }
+      if (currentOrder.buyerId !== user.companyId) {
+        throw new ForbiddenException('Bu order size ait değil');
+      }
 
-  if (!order.iyzicoPaymentId) {
-    throw new BadRequestException(
-      'Siparişin iyzico ödeme kimliği bulunamadı',
-    );
-  }
+      if (
+        currentOrder.status !== OrderStatus.SHIPPED ||
+        currentOrder.escrowReleased
+      ) {
+        throw new BadRequestException(
+          'Sipariş tamamlama için artık uygun durumda değil',
+        );
+      }
 
-  const iyzicoAlreadyApproved = Boolean(
-    paymentTransaction.iyzicoApprovedAt,
-  );
+      const activeDispute = await tx.dispute.findFirst({
+        where: {
+          orderId: order.id,
+          status: {
+            in: [DisputeStatus.OPEN, DisputeStatus.SELLER_RESPONDED],
+          },
+        },
+        select: { id: true },
+      });
+
+      if (activeDispute) {
+        throw new BadRequestException(
+          'Açık uyuşmazlık bulunan sipariş tamamlanamaz',
+        );
+      }
+
+      if (!currentOrder.iyzicoPaymentTransactionId) {
+        throw new BadRequestException(
+          'Siparişin kanonik iyzico işlem kimliği bulunamadı; otomatik işlem yapılmayacak, mutabakat gerekli',
+        );
+      }
+
+      const paymentTransaction = await tx.paymentTransaction.findUnique({
+        where: {
+          paymentTransactionId: currentOrder.iyzicoPaymentTransactionId,
+        },
+      });
+
+      if (
+        !paymentTransaction ||
+        paymentTransaction.orderId !== order.id ||
+        paymentTransaction.sellerId !== order.sellerId ||
+        paymentTransaction.status !== 'SUCCESS'
+      ) {
+        throw new BadRequestException(
+          'Siparişin kanonik iyzico işlem kaydı güvenle doğrulanamadı; mutabakat gerekli',
+        );
+      }
+
+      if (!currentOrder.iyzicoPaymentId) {
+        throw new BadRequestException(
+          'Siparişin iyzico ödeme kimliği bulunamadı',
+        );
+      }
+
+      const iyzicoAlreadyApproved = Boolean(
+        paymentTransaction.iyzicoApprovedAt,
+      );
+
+      if (!iyzicoAlreadyApproved) {
+        if (paymentTransaction.iyzicoApprovalPendingAt) {
+          throw new BadRequestException(
+            'iyzico satıcı ödeme onayı devam ediyor veya mutabakat bekliyor; otomatik tekrar yapılmayacak',
+          );
+        }
+
+        if (
+          paymentTransaction.iyzicoRefundPendingAt ||
+          paymentTransaction.iyzicoRefundedAt ||
+          new Prisma.Decimal(paymentTransaction.iyzicoRefundedAmount).gt(0)
+        ) {
+          throw new BadRequestException(
+            'İade süreci bulunan ödeme için iyzico satıcı ödeme onayı başlatılamaz',
+          );
+        }
+
+        const approvalClaim = await tx.paymentTransaction.updateMany({
+          where: {
+            id: paymentTransaction.id,
+            status: 'SUCCESS',
+            iyzicoApprovedAt: null,
+            iyzicoApprovalPendingAt: null,
+            iyzicoRefundPendingAt: null,
+            iyzicoRefundedAt: null,
+            iyzicoRefundedAmount: paymentTransaction.iyzicoRefundedAmount,
+          },
+          data: {
+            iyzicoApprovalPendingAt: new Date(),
+          },
+        });
+
+        if (approvalClaim.count !== 1) {
+          throw new BadRequestException(
+            'iyzico satıcı ödeme onayı başka bir istek tarafından başlatılmış veya ödeme kaydı değişmiş; otomatik tekrar yapılmayacak',
+          );
+        }
+      }
+
+      return {
+        paymentTransaction,
+        iyzicoAlreadyApproved,
+      };
+    });
 
   if (!iyzicoAlreadyApproved) {
+
     const approvalResult = await this.iyzico.approvePaymentItem(
       paymentTransaction.paymentTransactionId,
       order.iyzicoConversationId ?? undefined,
     );
 
+    const safeApprovalResult =
+      this.safeIyzicoApprovalResult(approvalResult);
+
     if (approvalResult?.status !== 'success') {
+      await this.prisma.paymentTransaction.update({
+        where: {
+          id: paymentTransaction.id,
+        },
+        data: {
+          iyzicoApprovalResult: safeApprovalResult ?? undefined,
+        },
+      });
+
       throw new BadRequestException(
-        approvalResult?.errorMessage ||
-          'iyzico satıcı ödeme onayı başarısız',
+        'iyzico satıcı ödeme onayı başarılı olarak doğrulanamadı; otomatik tekrar yapılmayacak, mutabakat gerekli',
       );
     }
 
-    await this.prisma.paymentTransaction.update({
-      where: {
-        paymentTransactionId: paymentTransaction.paymentTransactionId,
-      },
-      data: {
-        iyzicoApprovedAt: new Date(),
-        iyzicoApprovalResult: approvalResult,
-      },
-    });
+    const approvalFinalize =
+      await this.prisma.paymentTransaction.updateMany({
+        where: {
+          id: paymentTransaction.id,
+          status: 'SUCCESS',
+          iyzicoApprovedAt: null,
+          iyzicoApprovalPendingAt: {
+            not: null,
+          },
+          iyzicoRefundPendingAt: null,
+          iyzicoRefundedAt: null,
+          iyzicoRefundedAmount: paymentTransaction.iyzicoRefundedAmount,
+        },
+        data: {
+          iyzicoApprovedAt: new Date(),
+          iyzicoApprovalPendingAt: null,
+          iyzicoApprovalResult: safeApprovalResult ?? undefined,
+        },
+      });
+
+    if (approvalFinalize.count !== 1) {
+      throw new BadRequestException(
+        'iyzico satıcı ödeme onayı sağlayıcıda başarılı oldu ancak yerel kayıt güvenle kesinleştirilemedi; otomatik tekrar yapılmayacak, mutabakat gerekli',
+      );
+    }
   }
 
   const result = await this.prisma.$transaction(async (tx) => {
-    await this.ensureWallet(tx, order.buyerId);
-    await this.ensureWallet(tx, order.sellerId);
+    await tx.$queryRaw`
+      SELECT pg_advisory_xact_lock(
+        hashtextextended(${'order-lifecycle:' + order.id}, 0)
+      )::text
+    `;
 
-    const escrowAmount = new Prisma.Decimal(order.escrowAmount);
-    const payoutAmount = new Prisma.Decimal(order.payoutAmount);
+    const currentOrder = await tx.order.findUnique({
+      where: { id: order.id },
+    });
+
+    if (!currentOrder) {
+      throw new NotFoundException('Order not found');
+    }
+
+    if (currentOrder.buyerId !== user.companyId) {
+      throw new ForbiddenException('Bu order size ait değil');
+    }
+
+    if (
+      currentOrder.status !== OrderStatus.SHIPPED ||
+      currentOrder.escrowReleased
+    ) {
+      throw new BadRequestException(
+        'Sipariş local settlement için artık uygun durumda değil',
+      );
+    }
+
+    const activeDispute = await tx.dispute.findFirst({
+      where: {
+        orderId: currentOrder.id,
+        status: {
+          in: [DisputeStatus.OPEN, DisputeStatus.SELLER_RESPONDED],
+        },
+      },
+      select: { id: true },
+    });
+
+    if (activeDispute) {
+      throw new BadRequestException(
+        'Açık uyuşmazlık bulunan siparişte escrow serbest bırakılamaz',
+      );
+    }
+
+    if (!currentOrder.iyzicoPaymentTransactionId) {
+      throw new BadRequestException(
+        'Siparişin kanonik iyzico işlem kimliği bulunamadı; escrow serbest bırakılmayacak, mutabakat gerekli',
+      );
+    }
+
+    const currentPaymentTransaction =
+      await tx.paymentTransaction.findUnique({
+        where: {
+          paymentTransactionId: currentOrder.iyzicoPaymentTransactionId,
+        },
+      });
+
+    if (
+      !currentPaymentTransaction ||
+      currentPaymentTransaction.orderId !== currentOrder.id ||
+      currentPaymentTransaction.sellerId !== currentOrder.sellerId ||
+      currentPaymentTransaction.status !== 'SUCCESS'
+    ) {
+      throw new BadRequestException(
+        'Siparişin kanonik iyzico işlem kaydı escrow için güvenle doğrulanamadı; mutabakat gerekli',
+      );
+    }
+
+    if (
+      !currentPaymentTransaction.iyzicoApprovedAt ||
+      currentPaymentTransaction.iyzicoApprovalPendingAt
+    ) {
+      throw new BadRequestException(
+        'iyzico satıcı ödeme onayı kesinleşmeden escrow serbest bırakılamaz',
+      );
+    }
+
+    if (
+      currentPaymentTransaction.iyzicoRefundPendingAt ||
+      currentPaymentTransaction.iyzicoRefundedAt ||
+      new Prisma.Decimal(currentPaymentTransaction.iyzicoRefundedAmount).gt(0)
+    ) {
+      throw new BadRequestException(
+        'İade süreci bulunan ödeme için escrow satıcıya serbest bırakılamaz',
+      );
+    }
+
+    if (
+      !new Prisma.Decimal(currentPaymentTransaction.amount).eq(
+        new Prisma.Decimal(currentOrder.totalAmount),
+      )
+    ) {
+      throw new BadRequestException(
+        'Ödeme işlem tutarı sipariş toplamıyla uyuşmuyor; mutabakat gerekli',
+      );
+    }
+
+    await this.ensureWallet(tx, currentOrder.buyerId);
+    await this.ensureWallet(tx, currentOrder.sellerId);
+
+    const escrowAmount = new Prisma.Decimal(currentOrder.escrowAmount);
+    const payoutAmount = new Prisma.Decimal(currentOrder.payoutAmount);
+
+    if (escrowAmount.lte(0)) {
+      throw new BadRequestException(
+        'Serbest bırakılabilir escrow tutarı bulunmuyor',
+      );
+    }
 
     const buyerWallet = await tx.companyWallet.findUnique({
-      where: { companyId: order.buyerId },
+      where: { companyId: currentOrder.buyerId },
     });
 
     if (!buyerWallet) {
@@ -678,8 +914,12 @@ async complete(user: any, orderId: string) {
       throw new BadRequestException('Buyer locked bakiye yetersiz');
     }
 
-    const updated = await tx.order.update({
-      where: { id: order.id },
+    const releaseClaim = await tx.order.updateMany({
+      where: {
+        id: currentOrder.id,
+        status: OrderStatus.SHIPPED,
+        escrowReleased: false,
+      },
       data: {
         status: OrderStatus.COMPLETED,
         escrowReleased: true,
@@ -687,15 +927,21 @@ async complete(user: any, orderId: string) {
       },
     });
 
+    if (releaseClaim.count !== 1) {
+      throw new BadRequestException(
+        'Escrow başka bir işlem tarafından serbest bırakılmış veya sipariş durumu değişmiş',
+      );
+    }
+
     await tx.companyWallet.update({
-      where: { companyId: order.buyerId },
+      where: { companyId: currentOrder.buyerId },
       data: {
         locked: { decrement: escrowAmount },
       },
     });
 
     await tx.companyWallet.update({
-      where: { companyId: order.sellerId },
+      where: { companyId: currentOrder.sellerId },
       data: {
         available: { increment: payoutAmount },
       },
@@ -703,7 +949,7 @@ async complete(user: any, orderId: string) {
 
     await tx.ledgerEntry.create({
       data: {
-        orderId: order.id,
+        orderId: currentOrder.id,
         type: LedgerType.ESCROW_RELEASE_SELLER,
         amount: payoutAmount,
         currency: 'TRY',
@@ -711,7 +957,15 @@ async complete(user: any, orderId: string) {
       },
     });
 
-   return {
+    const updated = await tx.order.findUnique({
+      where: { id: currentOrder.id },
+    });
+
+    if (!updated) {
+      throw new NotFoundException('Order not found');
+    }
+
+    return {
       message: 'Order completed and escrow released',
       order: updated,
     };
