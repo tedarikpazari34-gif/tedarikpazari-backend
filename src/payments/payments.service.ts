@@ -4,6 +4,7 @@ import {
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
@@ -22,6 +23,8 @@ import { SensitiveDataService } from '../common/security/sensitive-data.service'
 
 @Injectable()
 export class PaymentsService {
+  private readonly logger = new Logger(PaymentsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly iyzico: IyzicoService,
@@ -1396,45 +1399,51 @@ export class PaymentsService {
     });
 
     if (processed.newlyPaid) {
-      const sellerUsers = await this.prisma.user.findMany({
-        where: {
-          companyId: order.sellerId,
-        },
-        select: {
-          id: true,
-        },
-      });
-
-      for (const seller of sellerUsers) {
-        await this.notificationService.createNotification({
-          userId: seller.id,
-          type: 'PAYMENT',
-          title: 'Ödeme Alındı',
-          message:
-            'Alıcı ödemeyi tamamladı. Siparişi hazırlamaya başlayabilirsiniz.',
-          link: '/seller/orders',
+      try {
+        const sellerUsers = await this.prisma.user.findMany({
+          where: {
+            companyId: order.sellerId,
+          },
+          select: {
+            id: true,
+          },
         });
-      }
 
-      const adminUsers = await this.prisma.user.findMany({
-        where: {
-          role: Role.ADMIN,
-        },
-        select: {
-          id: true,
-        },
-      });
+        for (const seller of sellerUsers) {
+          await this.notificationService.createNotification({
+            userId: seller.id,
+            type: 'PAYMENT',
+            title: 'Ödeme Alındı',
+            message:
+              'Alıcı ödemeyi tamamladı. Siparişi hazırlamaya başlayabilirsiniz.',
+            link: '/seller/orders',
+          });
+        }
 
-      const paymentAmount = new Prisma.Decimal(order.totalAmount).toFixed(2);
-
-      for (const admin of adminUsers) {
-        await this.notificationService.createNotification({
-          userId: admin.id,
-          type: 'PAYMENT',
-          title: 'Yeni Ödeme Alındı',
-          message: `${paymentAmount} ₺ tutarındaki sipariş ödemesi başarıyla alındı.`,
-          link: '/admin/orders',
+        const adminUsers = await this.prisma.user.findMany({
+          where: {
+            role: Role.ADMIN,
+          },
+          select: {
+            id: true,
+          },
         });
+
+        const paymentAmount = new Prisma.Decimal(order.totalAmount).toFixed(2);
+
+        for (const admin of adminUsers) {
+          await this.notificationService.createNotification({
+            userId: admin.id,
+            type: 'PAYMENT',
+            title: 'Yeni Ödeme Alındı',
+            message: `${paymentAmount} ₺ tutarındaki sipariş ödemesi başarıyla alındı.`,
+            link: '/admin/orders',
+          });
+        }
+      } catch {
+        this.logger.error(
+          `Ödeme tamamlandı ancak bildirim oluşturulamadı. orderId=${order.id}`,
+        );
       }
     }
 
