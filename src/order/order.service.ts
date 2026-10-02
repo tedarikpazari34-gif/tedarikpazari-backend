@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 
@@ -15,6 +16,8 @@ import { IyzicoService } from '../payments/iyzico.service';
 
 @Injectable()
 export class OrderService {
+  private readonly logger = new Logger(OrderService.name);
+
   constructor(
   private prisma: PrismaService,
   private notificationService: NotificationService,
@@ -459,101 +462,79 @@ async ship(user: any, orderId: string, body: ShipOrderDto) {
     );
   }
 
-  const updated = await this.prisma.order.update({
-    where: { id: order.id },
+  const claimed = await this.prisma.order.updateMany({
+    where: {
+      id: order.id,
+      sellerId: user.companyId,
+      status: OrderStatus.PREPARING,
+    },
     data: {
       status: OrderStatus.SHIPPED,
       shippedAt: new Date(),
       shippingTrackingNo: body.shippingTrackingNo.trim(),
       shippingCompany: body.shippingCompany.trim(),
+      shippingMethod: body.shippingMethod,
+      shippingDispatchNo: body.shippingDispatchNo?.trim() || null,
     },
   });
 
-  try {
-  const buyerUser = await this.prisma.user.findFirst({
-    where: { companyId: order.buyerId },
-  });
-
-  if (buyerUser) {
-    await this.notificationService.createNotification({
-      userId: buyerUser.id,
-      type: 'ORDER',
-      title: 'Sipariş Kargoya Verildi',
-      message: `${updated.shippingCompany || 'Kargo'} ile siparişiniz yola çıktı. Takip No: ${updated.shippingTrackingNo || '-'}`,
-      link: '/buyer/orders',
-    });
-  }
-
-  if (buyerUser?.email) {
-    await this.mailService.sendMail({
-      to: buyerUser.email,
-      subject: 'Tedarik Pazarı - Siparişiniz kargoya verildi',
-      text: `${updated.shippingCompany || 'Kargo'} ile siparişiniz yola çıktı. Takip No: ${updated.shippingTrackingNo || '-'}`,
-      html: `
-        <div style="font-family:Arial,sans-serif;line-height:1.6">
-          <h2>Siparişiniz kargoya verildi</h2>
-          <p>${updated.shippingCompany || 'Kargo'} ile siparişiniz yola çıktı.</p>
-          <p><strong>Takip No:</strong> ${updated.shippingTrackingNo || '-'}</p>
-          <p>Siparişinizi alıcı panelinizden takip edebilirsiniz.</p>
-        </div>
-      `,
-    });
-  }
-} catch (err) {
-  console.error('ship notification/mail failed', err);
-}
-
-  return {
-    message: 'Order marked as SHIPPED',
-    order: updated,
-  };
-}
-
-async selfDelivery(user: any, orderId: string) {
-  if (user.role !== Role.SELLER) {
-    throw new ForbiddenException('Sadece SELLER teslimata hazırlayabilir');
-  }
-
-  const order = await this.prisma.order.findUnique({
-    where: { id: orderId },
-  });
-
-  if (!order) {
-    throw new NotFoundException('Order not found');
-  }
-
-  if (order.sellerId !== user.companyId) {
-    throw new ForbiddenException('Bu order size ait değil');
-  }
-
-  if (order.status !== OrderStatus.PREPARING) {
+  if (claimed.count !== 1) {
     throw new BadRequestException(
-      `Order PREPARING değil. Mevcut status: ${order.status}`,
+      'Sipariş gönderim durumu değişti. Sayfayı yenileyip tekrar kontrol edin.',
     );
   }
 
-  const updated = await this.prisma.order.update({
+  const updated = await this.prisma.order.findUnique({
     where: { id: order.id },
-    data: {
-      status: OrderStatus.SHIPPED,
-      shippedAt: new Date(),
-      shippingCompany: 'Kendi Teslimatım',
-      shippingTrackingNo: null,
-    },
   });
+
+  if (!updated) {
+    throw new NotFoundException('Order not found');
+  }
 
   try {
     const buyerUser = await this.prisma.user.findFirst({
       where: { companyId: order.buyerId },
     });
 
+    const isFreight = updated.shippingMethod === 'FREIGHT';
+    const methodLabel = isFreight ? 'Ambar / Nakliye' : 'Kargo';
+    const referenceLabel = isFreight
+      ? 'Ambar Fiş / Gönderi No'
+      : 'Takip No';
+    const dispatchText = updated.shippingDispatchNo
+      ? ` Sevk İrsaliyesi No: ${updated.shippingDispatchNo}.`
+      : '';
+    const shippingMessage =
+      `${updated.shippingCompany || methodLabel} ile siparişiniz yola çıktı. ` +
+      `${referenceLabel}: ${updated.shippingTrackingNo || '-'}.${dispatchText}`;
+
+    const escapeHtml = (value: string) =>
+      value
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+    const safeShippingCompany = escapeHtml(
+      updated.shippingCompany || methodLabel,
+    );
+    const safeShippingTrackingNo = escapeHtml(
+      updated.shippingTrackingNo || '-',
+    );
+    const safeShippingDispatchNo = updated.shippingDispatchNo
+      ? escapeHtml(updated.shippingDispatchNo)
+      : null;
+
     if (buyerUser) {
       await this.notificationService.createNotification({
         userId: buyerUser.id,
         type: 'ORDER',
-        title: 'Sipariş Teslime Hazır',
-        message:
-          'Siparişiniz hazırlandı. Teslimatı kendi imkanlarınızla gerçekleştirebilirsiniz.',
+        title: isFreight
+          ? 'Sipariş Ambar / Nakliyeye Verildi'
+          : 'Sipariş Kargoya Verildi',
+        message: shippingMessage,
         link: '/buyer/orders',
       });
     }
@@ -561,25 +542,33 @@ async selfDelivery(user: any, orderId: string) {
     if (buyerUser?.email) {
       await this.mailService.sendMail({
         to: buyerUser.email,
-        subject: 'Tedarik Pazarı - Siparişiniz teslime hazır',
-        text:
-          'Siparişiniz hazırlandı. Teslimatı kendi imkanlarınızla gerçekleştirebilirsiniz.',
+        subject: isFreight
+          ? 'Tedarik Pazarı - Siparişiniz ambar / nakliyeye verildi'
+          : 'Tedarik Pazarı - Siparişiniz kargoya verildi',
+        text: shippingMessage,
         html: `
           <div style="font-family:Arial,sans-serif;line-height:1.6">
-            <h2>Siparişiniz teslime hazır</h2>
-            <p>Siparişiniz satıcı tarafından hazırlandı.</p>
-            <p>Teslimatı kendi imkanlarınızla gerçekleştirebilirsiniz.</p>
-            <p>Sipariş detaylarını alıcı panelinizden görüntüleyebilirsiniz.</p>
+            <h2>${isFreight ? 'Siparişiniz ambar / nakliyeye verildi' : 'Siparişiniz kargoya verildi'}</h2>
+            <p>${safeShippingCompany} ile siparişiniz yola çıktı.</p>
+            <p><strong>${referenceLabel}:</strong> ${safeShippingTrackingNo}</p>
+            ${
+              safeShippingDispatchNo
+                ? `<p><strong>Sevk İrsaliyesi No:</strong> ${safeShippingDispatchNo}</p>`
+                : ''
+            }
+            <p>Siparişinizi alıcı panelinizden takip edebilirsiniz.</p>
           </div>
         `,
       });
     }
-  } catch (err) {
-    console.error('self delivery notification/mail failed', err);
+  } catch {
+    this.logger.error(
+      `Ship notification/mail failed for order ${order.id}`,
+    );
   }
 
   return {
-    message: 'Order ready for self delivery',
+    message: 'Order marked as SHIPPED',
     order: updated,
   };
 }

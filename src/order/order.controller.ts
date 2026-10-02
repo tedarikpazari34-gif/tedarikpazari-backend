@@ -63,12 +63,6 @@ export class OrderController {
   }
 
   @UseGuards(JwtAuthGuard)
-  @Post(':id/self-delivery')
-  selfDelivery(@Req() req: any, @Param('id') id: string) {
-    return this.orderService.selfDelivery(req.user, id);
-  }
-
-  @UseGuards(JwtAuthGuard)
   @Post(':id/complete')
   complete(@Req() req: any, @Param('id') id: string) {
     return this.orderService.complete(req.user, id);

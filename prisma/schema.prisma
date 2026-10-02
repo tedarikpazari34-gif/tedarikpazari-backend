@@ -445,6 +445,8 @@ model Order {
 
   shippingTrackingNo String?
   shippingCompany    String?
+  shippingMethod     String?
+  shippingDispatchNo String?
   shippedAt          DateTime?
 
   iyzicoConversationId     String?
