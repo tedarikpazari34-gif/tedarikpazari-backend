@@ -41,10 +41,24 @@ export class AdminService {
 
   async listCompanies() {
     const companies = await this.prisma.company.findMany({
-      include: {
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        status: true,
+        verified: true,
+        createdAt: true,
+        iyzicoSubMerchantKey: true,
+        iyzicoSubMerchantPendingAt: true,
         users: {
           where: {
             role: "ADMIN",
+          },
+          select: {
+            id: true,
+            role: true,
+            email: true,
           },
           take: 1,
         },
@@ -79,15 +93,22 @@ export class AdminService {
     return companies.map((company) => {
       const productCount = company.products.length;
       const approvedProductCount = company.products.filter(
-        (product) => product.isApproved
+        (product) => product.isApproved,
       ).length;
       const pendingProductCount = productCount - approvedProductCount;
       const lastProductAt = company.products[0]?.createdAt ?? null;
 
-      const { products, ...companyData } = company;
+      const {
+        products,
+        iyzicoSubMerchantKey,
+        iyzicoSubMerchantPendingAt,
+        ...companyData
+      } = company;
 
       return {
         ...companyData,
+        iyzicoOnboardingCompleted: Boolean(iyzicoSubMerchantKey),
+        iyzicoOnboardingPending: Boolean(iyzicoSubMerchantPendingAt),
         productCount,
         approvedProductCount,
         pendingProductCount,
@@ -96,7 +117,6 @@ export class AdminService {
       };
     });
   }
-
 
   async verifyCompany(companyId: string) {
     const company = await this.prisma.company.findUnique({
