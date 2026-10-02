@@ -752,7 +752,7 @@ model ShippingOrder {
 
 model PaymentTransaction {
   id                      String    @id @default(cuid())
-  orderId                 String
+  orderId                 String    @unique
   sellerId                String
   paymentTransactionId    String    @unique
   amount                  Decimal
