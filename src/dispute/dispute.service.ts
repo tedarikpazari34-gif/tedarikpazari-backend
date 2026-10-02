@@ -192,44 +192,51 @@ export class DisputeService {
       return { order, dispute };
     });
 
-    const openedByBuyer = user.role === Role.BUYER;
-    const targetCompanyId = openedByBuyer ? order.sellerId : order.buyerId;
+    try {
+      const openedByBuyer = user.role === Role.BUYER;
+      const targetCompanyId = openedByBuyer ? order.sellerId : order.buyerId;
 
-    const targetUser = await this.prisma.user.findFirst({
-      where: {
-        companyId: targetCompanyId,
-      },
-    });
-
-    if (targetUser) {
-      await this.notificationService.createNotification({
-        userId: targetUser.id,
-        type: 'ORDER',
-        title: 'Uyuşmazlık Açıldı',
-        message: openedByBuyer
-          ? 'Bir siparişiniz için alıcı uyuşmazlık başlattı.'
-          : 'Bir siparişiniz için satıcı uyuşmazlık başlattı.',
-        link: openedByBuyer ? '/seller/orders' : '/buyer/orders',
+      const targetUser = await this.prisma.user.findFirst({
+        where: {
+          companyId: targetCompanyId,
+        },
       });
-    }
 
-    const adminUsers = await this.prisma.user.findMany({
-      where: {
-        role: Role.ADMIN,
-      },
-      select: {
-        id: true,
-      },
-    });
+      if (targetUser) {
+        await this.notificationService.createNotification({
+          userId: targetUser.id,
+          type: 'ORDER',
+          title: 'Uyuşmazlık Açıldı',
+          message: openedByBuyer
+            ? 'Bir siparişiniz için alıcı uyuşmazlık başlattı.'
+            : 'Bir siparişiniz için satıcı uyuşmazlık başlattı.',
+          link: openedByBuyer ? '/seller/orders' : '/buyer/orders',
+        });
+      }
 
-    for (const admin of adminUsers) {
-      await this.notificationService.createNotification({
-        userId: admin.id,
-        type: 'SYSTEM',
-        title: 'Yeni Uyuşmazlık',
-        message: `Bir sipariş için yeni uyuşmazlık açıldı. Sebep: ${reason.trim()}`,
-        link: '/admin/disputes',
+      const adminUsers = await this.prisma.user.findMany({
+        where: {
+          role: Role.ADMIN,
+        },
+        select: {
+          id: true,
+        },
       });
+
+      for (const admin of adminUsers) {
+        await this.notificationService.createNotification({
+          userId: admin.id,
+          type: 'SYSTEM',
+          title: 'Yeni Uyuşmazlık',
+          message: `Bir sipariş için yeni uyuşmazlık açıldı. Sebep: ${reason.trim()}`,
+          link: '/admin/disputes',
+        });
+      }
+
+    } catch {
+      this.logger.error(
+        `Dispute opened but notification failed for dispute ${dispute.id}`,
+      );
     }
 
     return dispute;
