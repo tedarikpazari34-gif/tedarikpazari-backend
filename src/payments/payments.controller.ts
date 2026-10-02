@@ -12,6 +12,7 @@ import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PaymentsService } from './payments.service';
+import { CreateIyzicoSubMerchantDto } from './dto/create-iyzico-submerchant.dto';
 
 @ApiTags('Payments')
 @ApiBearerAuth()
@@ -24,7 +25,7 @@ export class PaymentsController {
   @ApiOperation({ summary: 'Create iyzico Marketplace sub merchant for seller' })
   createSubMerchant(
     @Req() req: any,
-    @Body() body: { iban?: string; identityNumber?: string },
+    @Body() body: CreateIyzicoSubMerchantDto,
   ) {
     return this.payments.createIyzicoSubMerchant(req.user, body);
   }
