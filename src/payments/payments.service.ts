@@ -1105,11 +1105,13 @@ export class PaymentsService {
     );
 
     if (!result || result.status !== 'success') {
+      await this.markPaymentAttemptReview(attempt.id, result);
       const safeResult = this.safeIyzicoResult(result);
 
       return {
         reconciled: false,
-        message: 'iyzico ödeme sonucu doğrulanamadı',
+        message:
+          'iyzico ödeme sonucu doğrulanamadı; ödeme denemesi incelemeye alındı',
         result: safeResult,
       };
     }
