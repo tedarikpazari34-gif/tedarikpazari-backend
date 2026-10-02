@@ -490,7 +490,7 @@ model PaymentAttempt {
   status   PaymentStatus   @default(INITIATED)
 
   conversationId  String?
-  checkoutToken   String?
+  checkoutToken   String?         @unique
   iyzicoPaymentId String?
 
   rawRequest  Json?
