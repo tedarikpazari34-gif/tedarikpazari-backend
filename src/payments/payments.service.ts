@@ -1357,8 +1357,13 @@ export class PaymentsService {
     }
 
     if (order.status === OrderStatus.CANCELLED) {
+      await this.markPaymentAttemptReview(
+        paymentAttemptId,
+        result,
+        iyzicoPaymentId,
+      );
       throw new BadRequestException(
-        'İptal edilmiş sipariş için ödeme işlenemez',
+        'İptal edilmiş sipariş için başarılı iyzico sonucu alındı; mutabakat gerekli',
       );
     }
 
@@ -1366,18 +1371,20 @@ export class PaymentsService {
       order.status !== OrderStatus.PENDING_PAYMENT &&
       !postPaymentStatuses.includes(order.status)
     ) {
+      await this.markPaymentAttemptReview(
+        paymentAttemptId,
+        result,
+        iyzicoPaymentId,
+      );
       throw new BadRequestException(
-        'Sipariş durumu ödeme işlemi için geçerli değil',
+        'Sipariş durumu başarılı iyzico sonucuyla tutarsız; mutabakat gerekli',
       );
     }
 
-    const escrowAmount = new Prisma.Decimal(order.escrowAmount);
+    let processed;
 
-    if (escrowAmount.lte(0)) {
-      throw new BadRequestException('Escrow amount 0 olamaz');
-    }
-
-    const processed = await this.prisma.$transaction(async (tx) => {
+    try {
+      processed = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.order.updateMany({
         where: {
           id: order.id,
@@ -1466,6 +1473,14 @@ export class PaymentsService {
         );
       }
 
+      const escrowAmount = new Prisma.Decimal(order.escrowAmount);
+
+      if (escrowAmount.lte(0)) {
+        throw new BadRequestException(
+          'Başarılı iyzico ödemesi için escrow tutarı geçersiz; mutabakat gerekli',
+        );
+      }
+
       await this.ensureWallet(tx, order.buyerId);
       await this.ensureWallet(tx, order.sellerId);
 
@@ -1536,7 +1551,38 @@ export class PaymentsService {
         order: updatedOrder,
         newlyPaid: true,
       };
-    });
+      });
+    } catch (error) {
+      try {
+        const latestAttempt = await this.prisma.paymentAttempt.findUnique({
+          where: { id: paymentAttemptId },
+          select: { status: true },
+        });
+
+        const reviewableStatuses: PaymentStatus[] = [
+          PaymentStatus.INITIATED,
+          PaymentStatus.CALLBACK_RECEIVED,
+          PaymentStatus.REVIEW,
+        ];
+
+        if (
+          latestAttempt &&
+          reviewableStatuses.includes(latestAttempt.status)
+        ) {
+          await this.markPaymentAttemptReview(
+            paymentAttemptId,
+            result,
+            iyzicoPaymentId,
+          );
+        }
+      } catch {
+        this.logger.error(
+          `Başarılı iyzico sonucu sonrası ödeme denemesi REVIEW durumuna alınamadı. paymentAttemptId=${paymentAttemptId}`,
+        );
+      }
+
+      throw error;
+    }
 
     if (processed.newlyPaid) {
       try {
