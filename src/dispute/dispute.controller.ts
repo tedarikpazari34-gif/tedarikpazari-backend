@@ -39,10 +39,10 @@ export class DisputeController {
     return this.disputeService.listAll(req.user);
   }
 
-  // BUYER -> dispute aç
+  // BUYER/SELLER -> dispute aç
   @UseGuards(JwtAuthGuard)
   @Post(':orderId')
-  @ApiOperation({ summary: 'Open dispute for an order (BUYER)' })
+  @ApiOperation({ summary: 'Open dispute for an order (BUYER/SELLER)' })
   open(
     @Req() req: any,
     @Param('orderId') orderId: string,
