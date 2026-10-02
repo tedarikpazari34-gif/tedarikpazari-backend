@@ -995,8 +995,9 @@ export class PaymentsService {
     );
 
     if (!expectedBasketItemId) {
+      await this.markPaymentAttemptReview(attempt.id, result);
       throw new BadRequestException(
-        'Ödeme denemesinin basket item kaydı doğrulanamadı',
+        'Ödeme denemesinin basket item kaydı doğrulanamadı; mutabakat gerekli',
       );
     }
 
@@ -1094,16 +1095,6 @@ export class PaymentsService {
       );
     }
 
-    const expectedBasketItemId = this.getExpectedBasketItemId(
-      attempt.rawRequest,
-    );
-
-    if (!expectedBasketItemId) {
-      throw new BadRequestException(
-        'Ödeme denemesinin basket item kaydı doğrulanamadı',
-      );
-    }
-
     const result: any = await this.iyzico.retrieveCheckoutForm(
       token,
       expectedConversationId,
@@ -1138,6 +1129,17 @@ export class PaymentsService {
       await this.markPaymentAttemptReview(attempt.id, result);
       throw new BadRequestException(
         'iyzico conversationId ile ödeme denemesi eşleşmiyor; mutabakat gerekli',
+      );
+    }
+
+    const expectedBasketItemId = this.getExpectedBasketItemId(
+      attempt.rawRequest,
+    );
+
+    if (!expectedBasketItemId) {
+      await this.markPaymentAttemptReview(attempt.id, result);
+      throw new BadRequestException(
+        'Ödeme denemesinin basket item kaydı doğrulanamadı; mutabakat gerekli',
       );
     }
 
@@ -1308,8 +1310,13 @@ export class PaymentsService {
       : [];
 
     if (itemTransactions.length !== 1) {
+      await this.markPaymentAttemptReview(
+        paymentAttemptId,
+        result,
+        iyzicoPaymentId,
+      );
       throw new BadRequestException(
-        'iyzico işlem satırı sayısı doğrulanamadı',
+        'iyzico işlem satırı sayısı doğrulanamadı; mutabakat gerekli',
       );
     }
 
@@ -1323,8 +1330,13 @@ export class PaymentsService {
       receivedItemId !== expectedBasketItemId ||
       !paymentTransactionId
     ) {
+      await this.markPaymentAttemptReview(
+        paymentAttemptId,
+        result,
+        iyzicoPaymentId,
+      );
       throw new BadRequestException(
-        'iyzico işlem satırı siparişle doğrulanamadı',
+        'iyzico işlem satırı siparişle doğrulanamadı; mutabakat gerekli',
       );
     }
 
