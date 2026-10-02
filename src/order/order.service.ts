@@ -414,10 +414,28 @@ export class OrderService {
     );
   }
 
-  const updated = await this.prisma.order.update({
-    where: { id: order.id },
+  const claimed = await this.prisma.order.updateMany({
+    where: {
+      id: order.id,
+      sellerId: user.companyId,
+      status: OrderStatus.PAID,
+    },
     data: { status: OrderStatus.PREPARING },
   });
+
+  if (claimed.count !== 1) {
+    throw new BadRequestException(
+      "Sipariş hazırlama durumu değişti. Sayfayı yenileyip tekrar kontrol edin.",
+    );
+  }
+
+  const updated = await this.prisma.order.findUnique({
+    where: { id: order.id },
+  });
+
+  if (!updated) {
+    throw new NotFoundException("Order not found");
+  }
 
   const buyerUser = await this.prisma.user.findFirst({
     where: { companyId: order.buyerId },
