@@ -270,12 +270,26 @@ export class DisputeService {
     const base = dispute.description ?? '';
     const appended = `${base}${base ? '\n\n' : ''}[SELLER RESPONSE] ${sellerNote.trim()}`;
 
-    return this.prisma.dispute.update({
-      where: { id: dispute.id },
+    const responded = await this.prisma.dispute.updateMany({
+      where: {
+        id: dispute.id,
+        sellerId: user.companyId,
+        status: DisputeStatus.OPEN,
+      },
       data: {
         description: appended,
         status: DisputeStatus.SELLER_RESPONDED,
       },
+    });
+
+    if (responded.count !== 1) {
+      throw new BadRequestException(
+        'Dispute bu aşamada respond edilemez veya daha önce cevaplandı',
+      );
+    }
+
+    return this.prisma.dispute.findUniqueOrThrow({
+      where: { id: dispute.id },
     });
   }
 
