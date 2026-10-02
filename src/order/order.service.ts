@@ -929,6 +929,7 @@ async complete(user: any, orderId: string) {
       },
       data: {
         status: OrderStatus.COMPLETED,
+        escrowAmount: new Prisma.Decimal(0),
         escrowReleased: true,
         releasedAt: new Date(),
       },
