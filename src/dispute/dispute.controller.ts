@@ -12,6 +12,8 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { DisputeService } from './dispute.service';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
 import { AddDisputeFileDto } from './dto/add-dispute-file.dto';
+import { OpenDisputeDto } from './dto/open-dispute.dto';
+import { RespondDisputeDto } from './dto/respond-dispute.dto';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 @ApiTags('Disputes')
@@ -46,7 +48,7 @@ export class DisputeController {
   open(
     @Req() req: any,
     @Param('orderId') orderId: string,
-    @Body() body: { reason: string; description?: string },
+    @Body() body: OpenDisputeDto,
   ) {
     return this.disputeService.open(
       req.user,
@@ -63,7 +65,7 @@ export class DisputeController {
   respond(
     @Req() req: any,
     @Param('id') id: string,
-    @Body() body: { sellerNote: string },
+    @Body() body: RespondDisputeDto,
   ) {
     return this.disputeService.sellerRespond(req.user, id, body.sellerNote);
   }
