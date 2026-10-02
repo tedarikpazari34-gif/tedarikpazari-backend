@@ -441,7 +441,7 @@ export class OrderService {
 
 async ship(user: any, orderId: string, body: ShipOrderDto) {
   if (user.role !== Role.SELLER) {
-    throw new ForbiddenException('Sadece SELLER kargoya verebilir');
+    throw new ForbiddenException('Sadece SELLER gönderimi başlatabilir');
   }
 
   const order = await this.prisma.order.findUnique({
