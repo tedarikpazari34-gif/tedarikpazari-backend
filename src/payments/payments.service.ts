@@ -420,6 +420,23 @@ export class PaymentsService {
       request.taxNumber = company.taxNumber;
     }
 
+    const claimed = await this.prisma.company.updateMany({
+      where: {
+        id: company.id,
+        iyzicoSubMerchantKey: null,
+        iyzicoSubMerchantPendingAt: null,
+      },
+      data: {
+        iyzicoSubMerchantPendingAt: new Date(),
+      },
+    });
+
+    if (claimed.count !== 1) {
+      throw new BadRequestException(
+        'iyzico ödeme hesabı oluşturma işlemi daha önce başlatılmış veya tamamlanmış; otomatik tekrar yapılmayacak, mutabakat gerekli',
+      );
+    }
+
     const result = await this.iyzico.createSubMerchant(request);
 
     if (result?.status !== 'success' || !result?.subMerchantKey) {
@@ -428,12 +445,25 @@ export class PaymentsService {
       );
     }
 
-    await this.prisma.company.update({
-      where: { id: company.id },
+    const finalized = await this.prisma.company.updateMany({
+      where: {
+        id: company.id,
+        iyzicoSubMerchantKey: null,
+        iyzicoSubMerchantPendingAt: {
+          not: null,
+        },
+      },
       data: {
         iyzicoSubMerchantKey: result.subMerchantKey,
+        iyzicoSubMerchantPendingAt: null,
       },
     });
+
+    if (finalized.count !== 1) {
+      throw new InternalServerErrorException(
+        'iyzico ödeme hesabı sağlayıcıda oluşturuldu ancak yerel kayıt kesinleştirilemedi; otomatik tekrar yapılmayacak, mutabakat gerekli',
+      );
+    }
 
     return {
       success: true,

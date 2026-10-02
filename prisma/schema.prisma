@@ -140,6 +140,7 @@ model Company {
   status                     CompanyStatus @default(PENDING)
   role                       Role          @default(BUYER)
   iyzicoSubMerchantKey       String?
+  iyzicoSubMerchantPendingAt DateTime?
   iyzicoIban                 String?
   iyzicoIdentityNumber       String?
   paymentIdentityNumber      String?
