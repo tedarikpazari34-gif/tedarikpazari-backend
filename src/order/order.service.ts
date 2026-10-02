@@ -990,8 +990,10 @@ async complete(user: any, orderId: string) {
         `,
       });
     }
-  } catch (err) {
-    console.error('complete notification/mail failed', err);
+  } catch {
+    this.logger.error(
+      `Complete notification/mail failed for order ${order.id}`,
+    );
   }
 
   return result;
