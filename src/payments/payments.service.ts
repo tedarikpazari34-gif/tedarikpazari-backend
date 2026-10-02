@@ -482,6 +482,7 @@ export class PaymentsService {
       where: { id: companyId },
       select: {
         id: true,
+        role: true,
         iyzicoSubMerchantKey: true,
         iyzicoSubMerchantPendingAt: true,
       },
@@ -489,6 +490,12 @@ export class PaymentsService {
 
     if (!company) {
       throw new NotFoundException('Firma bulunamadı');
+    }
+
+    if (company.role !== Role.SELLER) {
+      throw new BadRequestException(
+        'iyzico satıcı hesabı mutabakatı yalnız SELLER firmalar için yapılabilir',
+      );
     }
 
     if (company.iyzicoSubMerchantKey) {
