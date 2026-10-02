@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
@@ -20,6 +21,8 @@ import { IyzicoService } from '../payments/iyzico.service';
 
 @Injectable()
 export class DisputeService {
+  private readonly logger = new Logger(DisputeService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
@@ -1045,39 +1048,45 @@ export class DisputeService {
         );
       });
 
-    const buyerUser = await this.prisma.user.findFirst({
-      where: { companyId: order.buyerId },
-    });
-
-    const sellerUser = await this.prisma.user.findFirst({
-      where: { companyId: order.sellerId },
-    });
-
-    const resultText =
-      resolution === DisputeResolution.RELEASE_TO_SELLER
-        ? 'Dispute satıcı lehine sonuçlandı.'
-        : resolution === DisputeResolution.REFUND_TO_BUYER
-          ? 'Dispute alıcı lehine sonuçlandı. Tutar iade edildi.'
-          : 'Dispute kısmi iade ile sonuçlandı.';
-
-    if (buyerUser) {
-      await this.notificationService.createNotification({
-        userId: buyerUser.id,
-        type: 'ORDER',
-        title: 'Dispute Sonuçlandı',
-        message: resultText,
-        link: '/buyer/orders',
+    try {
+      const buyerUser = await this.prisma.user.findFirst({
+        where: { companyId: order.buyerId },
       });
-    }
 
-    if (sellerUser) {
-      await this.notificationService.createNotification({
-        userId: sellerUser.id,
-        type: 'ORDER',
-        title: 'Dispute Sonuçlandı',
-        message: resultText,
-        link: '/seller/orders',
+      const sellerUser = await this.prisma.user.findFirst({
+        where: { companyId: order.sellerId },
       });
+
+      const resultText =
+        resolution === DisputeResolution.RELEASE_TO_SELLER
+          ? 'Dispute satıcı lehine sonuçlandı.'
+          : resolution === DisputeResolution.REFUND_TO_BUYER
+            ? 'Dispute alıcı lehine sonuçlandı. Tutar iade edildi.'
+            : 'Dispute kısmi iade ile sonuçlandı.';
+
+      if (buyerUser) {
+        await this.notificationService.createNotification({
+          userId: buyerUser.id,
+          type: 'ORDER',
+          title: 'Dispute Sonuçlandı',
+          message: resultText,
+          link: '/buyer/orders',
+        });
+      }
+
+      if (sellerUser) {
+        await this.notificationService.createNotification({
+          userId: sellerUser.id,
+          type: 'ORDER',
+          title: 'Dispute Sonuçlandı',
+          message: resultText,
+          link: '/seller/orders',
+        });
+      }
+    } catch {
+      this.logger.error(
+        `Dispute resolution notification failed for dispute ${dispute.id}`,
+      );
     }
 
     return result;
