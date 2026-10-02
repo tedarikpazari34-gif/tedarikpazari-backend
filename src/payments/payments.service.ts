@@ -973,8 +973,9 @@ export class PaymentsService {
     const resultConversationId = String(result.conversationId ?? '').trim();
 
     if (!basketOrderId || basketOrderId !== attempt.orderId) {
+      await this.markPaymentAttemptReview(attempt.id, result);
       throw new BadRequestException(
-        'iyzico basketId ile ödeme denemesi siparişi eşleşmiyor',
+        'iyzico basketId ile ödeme denemesi siparişi eşleşmiyor; mutabakat gerekli',
       );
     }
 
@@ -983,8 +984,9 @@ export class PaymentsService {
       !expectedConversationId ||
       resultConversationId !== expectedConversationId
     ) {
+      await this.markPaymentAttemptReview(attempt.id, result);
       throw new BadRequestException(
-        'iyzico conversationId ile ödeme denemesi eşleşmiyor',
+        'iyzico conversationId ile ödeme denemesi eşleşmiyor; mutabakat gerekli',
       );
     }
 
@@ -1123,8 +1125,9 @@ export class PaymentsService {
     const resultConversationId = String(result.conversationId ?? '').trim();
 
     if (!basketOrderId || basketOrderId !== attempt.orderId) {
+      await this.markPaymentAttemptReview(attempt.id, result);
       throw new BadRequestException(
-        'iyzico basketId ile ödeme denemesi siparişi eşleşmiyor',
+        'iyzico basketId ile ödeme denemesi siparişi eşleşmiyor; mutabakat gerekli',
       );
     }
 
@@ -1132,8 +1135,9 @@ export class PaymentsService {
       !resultConversationId ||
       resultConversationId !== expectedConversationId
     ) {
+      await this.markPaymentAttemptReview(attempt.id, result);
       throw new BadRequestException(
-        'iyzico conversationId ile ödeme denemesi eşleşmiyor',
+        'iyzico conversationId ile ödeme denemesi eşleşmiyor; mutabakat gerekli',
       );
     }
 
