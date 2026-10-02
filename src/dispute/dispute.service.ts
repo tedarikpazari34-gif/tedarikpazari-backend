@@ -16,6 +16,7 @@ import {
   Role,
 } from '@prisma/client';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
+import { AddDisputeFileDto } from './dto/add-dispute-file.dto';
 import { NotificationService } from '../notification/notification.service';
 import { IyzicoService } from '../payments/iyzico.service';
 
@@ -1132,7 +1133,7 @@ export class DisputeService {
 
     return result;
   }
-  async addFile(user: any, disputeId: string, body: any) {
+  async addFile(user: any, disputeId: string, body: AddDisputeFileDto) {
     const dispute = await this.prisma.dispute.findUnique({
       where: { id: disputeId },
     });
@@ -1147,6 +1148,31 @@ export class DisputeService {
 
     if (!isAdmin && !isBuyer && !isSeller) {
       throw new ForbiddenException('Bu dispute size ait değil');
+    }
+
+    if (
+      dispute.status !== DisputeStatus.OPEN &&
+      dispute.status !== DisputeStatus.SELLER_RESPONDED
+    ) {
+      throw new BadRequestException(
+        'Sonuçlandırılmış dispute için dosya eklenemez',
+      );
+    }
+
+    let fileUrl: URL;
+    try {
+      fileUrl = new URL(body.url);
+    } catch {
+      throw new BadRequestException('Geçersiz dispute dosya URL adresi');
+    }
+
+    if (
+      fileUrl.protocol !== 'https:' ||
+      fileUrl.hostname !== 'res.cloudinary.com'
+    ) {
+      throw new BadRequestException(
+        'Dispute dosyası yalnızca güvenli yükleme kaynağından eklenebilir',
+      );
     }
 
     return this.prisma.disputeFile.create({

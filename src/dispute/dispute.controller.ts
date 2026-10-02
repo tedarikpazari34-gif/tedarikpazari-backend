@@ -11,6 +11,7 @@ import {
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { DisputeService } from './dispute.service';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
+import { AddDisputeFileDto } from './dto/add-dispute-file.dto';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
 @ApiTags('Disputes')
@@ -87,7 +88,7 @@ export class DisputeController {
 addFile(
   @Req() req: any,
   @Param('id') id: string,
-  @Body() body: { url: string; fileName?: string; fileType?: string },
+  @Body() body: AddDisputeFileDto,
 ) {
   return this.disputeService.addFile(req.user, id, body);
 }
