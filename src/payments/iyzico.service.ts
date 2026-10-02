@@ -91,6 +91,36 @@ export class IyzicoService {
     }
   }
 
+  async retrieveSubMerchant(
+    subMerchantExternalId: string,
+    conversationId?: string,
+  ): Promise<any> {
+    try {
+      const result: any = await new Promise((resolve, reject) => {
+        this.iyzipay.subMerchant.retrieve(
+          {
+            locale: 'tr',
+            ...(conversationId ? { conversationId } : {}),
+            subMerchantExternalId,
+          },
+          (err: any, res: any) => {
+            if (err) {
+              return reject(err);
+            }
+            resolve(res);
+          },
+        );
+      });
+
+      return result;
+    } catch (error) {
+      console.error('IYZICO SUBMERCHANT RETRIEVE ERROR');
+      throw new InternalServerErrorException(
+        'iyzico submerchant retrieve failed',
+      );
+    }
+  }
+
   async approvePaymentItem(
     paymentTransactionId: string,
     conversationId?: string,

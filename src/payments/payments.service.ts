@@ -420,6 +420,8 @@ export class PaymentsService {
       request.taxNumber = company.taxNumber;
     }
 
+    const subMerchantClaimedAt = new Date();
+
     const claimed = await this.prisma.company.updateMany({
       where: {
         id: company.id,
@@ -427,7 +429,7 @@ export class PaymentsService {
         iyzicoSubMerchantPendingAt: null,
       },
       data: {
-        iyzicoSubMerchantPendingAt: new Date(),
+        iyzicoSubMerchantPendingAt: subMerchantClaimedAt,
       },
     });
 
@@ -449,9 +451,7 @@ export class PaymentsService {
       where: {
         id: company.id,
         iyzicoSubMerchantKey: null,
-        iyzicoSubMerchantPendingAt: {
-          not: null,
-        },
+        iyzicoSubMerchantPendingAt: subMerchantClaimedAt,
       },
       data: {
         iyzicoSubMerchantKey: result.subMerchantKey,
