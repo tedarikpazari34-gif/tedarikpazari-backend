@@ -13,6 +13,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PaymentsService } from './payments.service';
 import { CreateIyzicoSubMerchantDto } from './dto/create-iyzico-submerchant.dto';
+import { ResolveIyzicoPaymentReviewDto } from './dto/resolve-iyzico-payment-review.dto';
 
 @ApiTags('Payments')
 @ApiBearerAuth()
@@ -65,6 +66,25 @@ export class PaymentsController {
     @Param('paymentAttemptId') paymentAttemptId: string,
   ) {
     return this.payments.reconcileIyzicoPayment(req.user, paymentAttemptId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('iyzico/resolve-review-failed/:paymentAttemptId')
+  @ApiOperation({
+    summary: 'Resolve an iyzico REVIEW payment attempt as FAILED',
+  })
+  resolveReviewAsFailed(
+    @Req() req: any,
+    @Param('paymentAttemptId') paymentAttemptId: string,
+    @Body() body: ResolveIyzicoPaymentReviewDto,
+  ) {
+    return this.payments.resolveIyzicoPaymentReviewAsFailed(
+      req.user,
+      paymentAttemptId,
+      body,
+      req.ip,
+      req.headers?.['user-agent'],
+    );
   }
 
   @Post('iyzico/callback')

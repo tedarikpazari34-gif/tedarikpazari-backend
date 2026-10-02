@@ -20,6 +20,7 @@ import {
 import { IyzicoService } from './iyzico.service';
 import { NotificationService } from '../notification/notification.service';
 import { SensitiveDataService } from '../common/security/sensitive-data.service';
+import { ResolveIyzicoPaymentReviewDto } from './dto/resolve-iyzico-payment-review.dto';
 
 @Injectable()
 export class PaymentsService {
@@ -1161,6 +1162,140 @@ export class PaymentsService {
       expectedBasketItemId,
       resultConversationId,
     );
+  }
+
+  async resolveIyzicoPaymentReviewAsFailed(
+    user: any,
+    paymentAttemptId: string,
+    body: ResolveIyzicoPaymentReviewDto,
+    ip?: string,
+    userAgent?: string,
+  ) {
+    if (user?.role !== Role.ADMIN) {
+      throw new ForbiddenException(
+        'Sadece ADMIN ödeme incelemesini sonuçlandırabilir',
+      );
+    }
+
+    const reason = String(body?.reason ?? '').trim();
+
+    return this.prisma.$transaction(async (tx) => {
+      const attempt = await tx.paymentAttempt.findFirst({
+        where: {
+          id: paymentAttemptId,
+          provider: PaymentProvider.IYZICO,
+        },
+        include: {
+          order: {
+            select: {
+              id: true,
+              status: true,
+              iyzicoPaymentId: true,
+              iyzicoPaymentTransactionId: true,
+              iyzicoPaidAt: true,
+            },
+          },
+        },
+      });
+
+      if (!attempt) {
+        throw new NotFoundException('Ödeme denemesi bulunamadı');
+      }
+
+      if (attempt.status !== PaymentStatus.REVIEW) {
+        throw new BadRequestException(
+          'Yalnızca REVIEW durumundaki ödeme denemesi manuel olarak sonuçlandırılabilir',
+        );
+      }
+
+      if (attempt.order.status !== OrderStatus.PENDING_PAYMENT) {
+        throw new BadRequestException(
+          'Sipariş artık ödeme beklemiyor; manuel mutabakat gerekli',
+        );
+      }
+
+      if (
+        attempt.order.iyzicoPaymentId ||
+        attempt.order.iyzicoPaymentTransactionId ||
+        attempt.order.iyzicoPaidAt
+      ) {
+        throw new BadRequestException(
+          'Siparişte iyzico ödeme kanıtı mevcut; FAILED olarak işaretlenemez',
+        );
+      }
+
+      const paymentTransaction = await tx.paymentTransaction.findFirst({
+        where: { orderId: attempt.orderId },
+        select: { id: true },
+      });
+
+      if (paymentTransaction) {
+        throw new BadRequestException(
+          'Siparişe ait ödeme işlemi mevcut; FAILED olarak işaretlenemez',
+        );
+      }
+
+      const successfulAttempt = await tx.paymentAttempt.findFirst({
+        where: {
+          orderId: attempt.orderId,
+          provider: PaymentProvider.IYZICO,
+          status: PaymentStatus.SUCCESS,
+        },
+        select: { id: true },
+      });
+
+      if (successfulAttempt) {
+        throw new BadRequestException(
+          'Siparişte başarılı iyzico ödeme denemesi mevcut; FAILED olarak işaretlenemez',
+        );
+      }
+
+      const transitioned = await tx.paymentAttempt.updateMany({
+        where: {
+          id: attempt.id,
+          provider: PaymentProvider.IYZICO,
+          status: PaymentStatus.REVIEW,
+        },
+        data: {
+          status: PaymentStatus.FAILED,
+          failedAt: new Date(),
+        },
+      });
+
+      if (transitioned.count !== 1) {
+        throw new BadRequestException(
+          'Ödeme inceleme durumu değişti; yeniden kontrol gerekli',
+        );
+      }
+
+      await tx.auditLog.create({
+        data: {
+          actorId: user.id,
+          actorRole: user.role,
+          actorCompanyId: user.companyId ?? null,
+          action: 'IYZICO_PAYMENT_REVIEW_RESOLVED_FAILED',
+          entity: 'PaymentAttempt',
+          entityId: attempt.id,
+          success: true,
+          ip: ip ?? null,
+          userAgent: userAgent ?? null,
+          userId: user.id,
+          metadata: {
+            orderId: attempt.orderId,
+            reason,
+            previousStatus: PaymentStatus.REVIEW,
+            newStatus: PaymentStatus.FAILED,
+          },
+        },
+      });
+
+      return {
+        resolved: true,
+        paymentAttemptId: attempt.id,
+        orderId: attempt.orderId,
+        status: PaymentStatus.FAILED,
+      };
+    });
   }
 
   /**
