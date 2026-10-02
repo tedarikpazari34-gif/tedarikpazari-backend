@@ -113,6 +113,16 @@ export class DisputeService {
         );
       }
 
+      if (
+        order.status !== OrderStatus.PAID &&
+        order.status !== OrderStatus.PREPARING &&
+        order.status !== OrderStatus.SHIPPED
+      ) {
+        throw new BadRequestException(
+          'Yalnızca ödemesi tamamlanmış aktif siparişler için dispute açılabilir',
+        );
+      }
+
       if (!order.iyzicoPaymentTransactionId) {
         throw new BadRequestException(
           'Siparişin kanonik iyzico işlem kimliği bulunamadı; uyuşmazlık otomatik açılamaz, mutabakat gerekli',
