@@ -471,6 +471,88 @@ export class PaymentsService {
     };
   }
 
+  async reconcileIyzicoSubMerchant(user: any, companyId: string) {
+    if (user?.role !== Role.ADMIN) {
+      throw new ForbiddenException(
+        'Sadece ADMIN iyzico satıcı hesabı mutabakatı yapabilir',
+      );
+    }
+
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: {
+        id: true,
+        iyzicoSubMerchantKey: true,
+        iyzicoSubMerchantPendingAt: true,
+      },
+    });
+
+    if (!company) {
+      throw new NotFoundException('Firma bulunamadı');
+    }
+
+    if (company.iyzicoSubMerchantKey) {
+      return {
+        success: true,
+        alreadyCompleted: true,
+        message: 'iyzico ödeme hesabı zaten yerel olarak tamamlanmış',
+      };
+    }
+
+    if (!company.iyzicoSubMerchantPendingAt) {
+      throw new BadRequestException(
+        'Bu firma için mutabakat gerektiren bekleyen iyzico işlemi bulunmuyor',
+      );
+    }
+
+    const conversationId = `submerchant_reconcile_${company.id}_${Date.now()}`;
+    const result = await this.iyzico.retrieveSubMerchant(
+      company.id,
+      conversationId,
+    );
+
+    const providerExternalId = String(
+      result?.subMerchantExternalId ?? '',
+    ).trim();
+    const providerSubMerchantKey = String(
+      result?.subMerchantKey ?? '',
+    ).trim();
+
+    if (
+      result?.status !== 'success' ||
+      providerExternalId !== company.id ||
+      !providerSubMerchantKey
+    ) {
+      throw new BadRequestException(
+        'iyzico satıcı hesabı doğrulanamadı; yerel kayıt değiştirilmedi',
+      );
+    }
+
+    const finalized = await this.prisma.company.updateMany({
+      where: {
+        id: company.id,
+        iyzicoSubMerchantKey: null,
+        iyzicoSubMerchantPendingAt: company.iyzicoSubMerchantPendingAt,
+      },
+      data: {
+        iyzicoSubMerchantKey: providerSubMerchantKey,
+        iyzicoSubMerchantPendingAt: null,
+      },
+    });
+
+    if (finalized.count !== 1) {
+      throw new BadRequestException(
+        'Firma onboarding durumu mutabakat sırasında değişti; yerel kayıt güncellenmedi',
+      );
+    }
+
+    return {
+      success: true,
+      alreadyCompleted: false,
+      message: 'iyzico ödeme hesabı güvenli şekilde mutabakat edildi',
+    };
+  }
+
   /**
    * BUYER -> IyziCo checkout başlat
    * - Order PENDING_PAYMENT olmalı

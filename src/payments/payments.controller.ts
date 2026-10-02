@@ -31,6 +31,16 @@ export class PaymentsController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post('iyzico/submerchant/reconcile/:companyId')
+  @ApiOperation({ summary: 'Reconcile iyzico Marketplace sub merchant (ADMIN)' })
+  reconcileSubMerchant(
+    @Req() req: any,
+    @Param('companyId') companyId: string,
+  ) {
+    return this.payments.reconcileIyzicoSubMerchant(req.user, companyId);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post('iyzico/:orderId/initialize')
   @ApiOperation({ summary: 'Initialize iyzico checkout' })
   initialize(@Req() req: any, @Param('orderId') orderId: string) {
