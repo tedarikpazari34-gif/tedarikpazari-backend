@@ -963,7 +963,10 @@ export class PaymentsService {
     );
 
     if (!result || result.status !== 'success') {
-      throw new BadRequestException('IyziCo ödeme doğrulanamadı');
+      await this.markPaymentAttemptReview(attempt.id, result);
+      throw new BadRequestException(
+        'IyziCo ödeme doğrulanamadı; ödeme denemesi incelemeye alındı',
+      );
     }
 
     const basketOrderId = String(result.basketId ?? '').trim();
