@@ -55,6 +55,7 @@ export class CompanyService {
           taxNumber: true,
           paymentIdentityNumber: true,
           iyzicoSubMerchantKey: true,
+          iyzicoSubMerchantPendingAt: true,
           taxOffice: true,
           address: true,
         verified: true,
