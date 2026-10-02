@@ -642,6 +642,16 @@ export class DisputeService {
         }
 
         if (
+          !iyzicoRefundAmount.equals(
+            new Prisma.Decimal(currentOrder.totalAmount),
+          )
+        ) {
+          throw new BadRequestException(
+            'İade tutarı güncel sipariş toplamıyla uyuşmuyor; otomatik iade yapılmayacak, mutabakat gerekli',
+          );
+        }
+
+        if (
           currentPaymentTransaction.iyzicoApprovalPendingAt ||
           currentPaymentTransaction.iyzicoApprovedAt
         ) {
