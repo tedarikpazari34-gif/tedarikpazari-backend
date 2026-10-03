@@ -1032,7 +1032,15 @@ export class PaymentsService {
     return this.prisma.paymentAttempt.findMany({
       where: {
         provider: PaymentProvider.IYZICO,
-        status: PaymentStatus.REVIEW,
+        OR: [
+          { status: PaymentStatus.REVIEW },
+          {
+            status: PaymentStatus.INITIATED,
+            order: {
+              status: OrderStatus.PENDING_PAYMENT,
+            },
+          },
+        ],
       },
       select: {
         id: true,
