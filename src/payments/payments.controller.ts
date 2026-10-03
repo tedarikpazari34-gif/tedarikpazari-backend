@@ -49,6 +49,13 @@ export class PaymentsController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get('iyzico/reviews')
+  @ApiOperation({ summary: 'List iyzico payment attempts awaiting review' })
+  listReviews(@Req() req: any) {
+    return this.payments.listIyzicoPaymentReviews(req.user);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get('iyzico/inspect/:paymentAttemptId')
   @ApiOperation({ summary: 'Inspect an existing iyzico payment attempt without modifying it' })
   inspect(

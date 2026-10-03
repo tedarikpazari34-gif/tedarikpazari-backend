@@ -1022,6 +1022,45 @@ export class PaymentsService {
     );
   }
 
+  async listIyzicoPaymentReviews(user: any) {
+    if (user?.role !== Role.ADMIN) {
+      throw new ForbiddenException(
+        'Sadece ADMIN ödeme inceleme listesini görebilir',
+      );
+    }
+
+    return this.prisma.paymentAttempt.findMany({
+      where: {
+        provider: PaymentProvider.IYZICO,
+        status: PaymentStatus.REVIEW,
+      },
+      select: {
+        id: true,
+        orderId: true,
+        status: true,
+        conversationId: true,
+        iyzicoPaymentId: true,
+        createdAt: true,
+        updatedAt: true,
+        reviewedAt: true,
+        callbackVerifiedAt: true,
+        order: {
+          select: {
+            status: true,
+            totalAmount: true,
+            iyzicoPaymentId: true,
+            iyzicoPaymentTransactionId: true,
+            iyzicoPaidAt: true,
+            buyer: { select: { name: true } },
+            seller: { select: { name: true } },
+          },
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 100,
+    });
+  }
+
   async inspectIyzicoPayment(user: any, paymentAttemptId: string) {
     if (user?.role !== Role.ADMIN) {
       throw new ForbiddenException('Sadece ADMIN ödeme incelemesi yapabilir');
