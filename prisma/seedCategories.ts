@@ -810,6 +810,41 @@ const categories: CategorySeed[] = [
           "Saat Aksesuarları",
         ],
       },
+      {
+        name: "Çocuk ve Bebek Giyim",
+        children: [
+          "Kız Çocuk Giyim",
+          "Erkek Çocuk Giyim",
+          "Bebek Giyim",
+          "Bebek Body ve Zıbın",
+          "Çocuk T-Shirt",
+          "Çocuk Sweatshirt",
+          "Çocuk Pantolon",
+          "Çocuk Elbise",
+          "Çocuk Eşofman",
+          "Çocuk Mont ve Kaban",
+          "Okul Giyimi",
+          "Çocuk İç Giyim",
+          "Çocuk Çorap",
+        ],
+      },
+      {
+        name: "Ev Tekstili",
+        children: [
+          "Nevresim Takımları",
+          "Çarşaf ve Yastık Kılıfları",
+          "Yorgan ve Battaniye",
+          "Havlu ve Bornoz",
+          "Mutfak Tekstili",
+          "Masa Örtüsü",
+          "Perde ve Tül",
+          "Koltuk Örtüsü",
+          "Dekoratif Yastık ve Kırlent",
+          "Otel Tekstili",
+          "Hastane Tekstili",
+          "Toplu Ev Tekstili Ürünleri",
+        ],
+      },
     ],
   },
 
@@ -1861,7 +1896,7 @@ const categories: CategorySeed[] = [
     ],
   },
   {
-    name: "Elektronik ve Teknoloji",
+    name: "Elektronik, Bilişim & Teknoloji",
     children: [
       {
         name: "Bilgisayar ve Çevre Birimleri",
@@ -2569,7 +2604,36 @@ async function syncCategory(
   }
 }
 
+async function renameLegacyCategories() {
+  const oldElectronics = await prisma.category.findFirst({
+    where: {
+      name: "Elektronik ve Teknoloji",
+      parentId: null,
+    },
+  });
+
+  const newElectronics = await prisma.category.findFirst({
+    where: {
+      name: "Elektronik, Bilişim & Teknoloji",
+      parentId: null,
+    },
+  });
+
+  if (oldElectronics && !newElectronics) {
+    await prisma.category.update({
+      where: { id: oldElectronics.id },
+      data: { name: "Elektronik, Bilişim & Teknoloji" },
+    });
+
+    console.log(
+      "✅ Elektronik ve Teknoloji → Elektronik, Bilişim & Teknoloji",
+    );
+  }
+}
+
 async function main() {
+  await renameLegacyCategories();
+
   for (const category of categories) {
     await syncCategory(category);
   }
