@@ -13,6 +13,7 @@ import {
   Role,
 } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
+import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma.service';
 
@@ -169,6 +170,19 @@ export class ProductImportService {
 
     kaynakdil: 'sourceLanguage',
     dil: 'sourceLanguage',
+    title: 'title',
+    description: 'description',
+    categorypath: 'categoryPath',
+    unittype: 'unitType',
+    baseprice: 'basePrice',
+    vatrate: 'vatRate',
+    stockquantity: 'stockQuantity',
+    stocktype: 'stockType',
+    leadtimedays: 'leadTimeDays',
+    imageurls: 'imageUrls',
+    country: 'country',
+    city: 'city',
+    sourcelanguage: 'sourceLanguage',
   };
 
   private parseImageUrls(value: unknown): string[] {
@@ -697,7 +711,7 @@ export class ProductImportService {
         (existingById.sku ?? '').toUpperCase() !== (row.sku ?? '').toUpperCase()
       ) {
         throw new BadRequestException(
-          'Ürünün SKU bilgisi ön kontrolden sonra değişmiş. Excel dosyasını yeniden yükleyin',
+          'Ürünün SKU bilgisi ön kontrolden sonra değişmiş. İçe aktarma verisini yeniden yükleyin',
         );
       }
 
@@ -1146,6 +1160,164 @@ export class ProductImportService {
     };
   }
 
+  async createXmlJob(
+    user: ImportUser,
+    file: { originalname?: string; buffer?: Buffer },
+  ) {
+    const company = await this.requireVerifiedSellerCompany(user);
+
+    if (!file?.buffer || file.buffer.length === 0) {
+      throw new BadRequestException('XML dosyası bulunamadı');
+    }
+
+    if (file.buffer.length > 10 * 1024 * 1024) {
+      throw new BadRequestException('XML dosyası en fazla 10 MB olabilir');
+    }
+
+    const fileName = file.originalname?.trim() || 'urunler.xml';
+
+    if (!fileName.toLocaleLowerCase('tr-TR').endsWith('.xml')) {
+      throw new BadRequestException('Yalnızca .xml dosyaları kabul edilir');
+    }
+
+    const xml = file.buffer.toString('utf8').replace(/^\uFEFF/, '');
+
+    if (!xml.trim()) {
+      throw new BadRequestException('XML dosyası boş');
+    }
+
+    if (/<!\s*(?:DOCTYPE|ENTITY)\b/i.test(xml)) {
+      throw new BadRequestException(
+        'XML dosyasında DOCTYPE veya ENTITY kullanımına izin verilmez',
+      );
+    }
+
+    const validation = XMLValidator.validate(xml);
+
+    if (validation !== true) {
+      throw new BadRequestException('XML dosyası geçerli değil veya bozuk');
+    }
+
+    const parser = new XMLParser({
+      ignoreAttributes: true,
+      parseTagValue: false,
+      parseAttributeValue: false,
+      trimValues: true,
+      processEntities: false,
+      maxNestedTags: 20,
+    });
+
+    let parsed: unknown;
+
+    try {
+      parsed = parser.parse(xml);
+    } catch {
+      throw new BadRequestException('XML dosyası okunamadı veya bozuk');
+    }
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new BadRequestException('XML kök yapısı geçerli değil');
+    }
+
+    const rootEntries = Object.entries(parsed as Record<string, unknown>).filter(
+      ([key]) => !key.startsWith('?'),
+    );
+
+    if (rootEntries.length !== 1) {
+      throw new BadRequestException(
+        'XML dosyasında tek bir products kök düğümü bulunmalıdır',
+      );
+    }
+
+    const [rootName, rootValue] = rootEntries[0];
+
+    if (this.normalizeHeader(rootName) !== 'products') {
+      throw new BadRequestException('XML kök düğümü products olmalıdır');
+    }
+
+    if (!rootValue || typeof rootValue !== 'object' || Array.isArray(rootValue)) {
+      throw new BadRequestException('XML products yapısı geçerli değil');
+    }
+
+    const productsObject = rootValue as Record<string, unknown>;
+    const productEntries = Object.entries(productsObject).filter(
+      ([key]) => this.normalizeHeader(key) === 'product',
+    );
+    const unexpectedRootFields = Object.keys(productsObject).filter(
+      (key) => this.normalizeHeader(key) !== 'product',
+    );
+
+    if (unexpectedRootFields.length > 0) {
+      throw new BadRequestException(
+        `XML products altında yalnızca product düğümleri olabilir: ${unexpectedRootFields.join(', ')}`,
+      );
+    }
+
+    if (productEntries.length !== 1) {
+      throw new BadRequestException(
+        productEntries.length === 0
+          ? 'XML dosyasında product kaydı bulunamadı'
+          : 'XML dosyasında birden fazla product alan grubu bulunamaz',
+      );
+    }
+
+    const productNodes = Array.isArray(productEntries[0][1])
+      ? productEntries[0][1]
+      : [productEntries[0][1]];
+
+    if (productNodes.length === 0) {
+      throw new BadRequestException('XML dosyasında ürün satırı bulunamadı');
+    }
+
+    if (productNodes.length > 10000) {
+      throw new BadRequestException(
+        'Tek XML dosyasında en fazla 10.000 ürün işlenebilir',
+      );
+    }
+
+    const rawRows = productNodes.map((node, index) => {
+      if (!node || typeof node !== 'object' || Array.isArray(node)) {
+        throw new BadRequestException(
+          `XML product kaydı geçerli değil: ${index + 1}`,
+        );
+      }
+
+      const raw: Record<string, unknown> = {};
+
+      for (const [xmlKey, xmlValue] of Object.entries(
+        node as Record<string, unknown>,
+      )) {
+        const normalizedKey = this.normalizeHeader(xmlKey);
+        const mappedField = this.headerAliases[normalizedKey];
+
+        if (!mappedField) continue;
+
+        if (
+          xmlValue !== null &&
+          typeof xmlValue === 'object'
+        ) {
+          throw new BadRequestException(
+            `XML alanı iç içe olamaz: ${xmlKey} (ürün ${index + 1})`,
+          );
+        }
+
+        raw[mappedField] = xmlValue;
+      }
+
+      return {
+        rowNumber: index + 1,
+        raw,
+      };
+    });
+
+    return this.createImportJob(
+      company.id,
+      ProductImportSource.XML,
+      fileName,
+      rawRows,
+    );
+  }
+
   async createExcelJob(
     user: ImportUser,
     file: { originalname?: string; buffer?: Buffer },
@@ -1215,6 +1387,20 @@ export class ProductImportService {
       );
     }
 
+    return this.createImportJob(
+      company.id,
+      ProductImportSource.EXCEL,
+      fileName,
+      rawRows,
+    );
+  }
+
+  private async createImportJob(
+    sellerId: string,
+    source: ProductImportSource,
+    originalFileName: string,
+    rawRows: Array<{ rowNumber: number; raw: Record<string, unknown> }>,
+  ) {
     const categoryMap = await this.buildCategoryPathMap();
 
     const normalizedRows = rawRows.map((row) => {
@@ -1228,10 +1414,7 @@ export class ProductImportService {
       };
     });
 
-    const classifiedRows = await this.classifyRows(
-      company.id,
-      normalizedRows,
-    );
+    const classifiedRows = await this.classifyRows(sellerId, normalizedRows);
 
     const counts = {
       totalRows: classifiedRows.length,
@@ -1257,10 +1440,10 @@ export class ProductImportService {
 
     const job = await this.prisma.productImportJob.create({
       data: {
-        sellerId: company.id,
-        source: ProductImportSource.EXCEL,
+        sellerId,
+        source,
         status,
-        originalFileName: fileName,
+        originalFileName,
         totalRows: counts.totalRows,
         readyRows,
         errorRows: counts.errorRows,
@@ -1491,7 +1674,7 @@ export class ProductImportService {
       const skuKey = row.normalized.sku;
 
       if (skuKey && (skuCounts.get(skuKey) ?? 0) > 1) {
-        errors.push(`Excel içinde mükerrer SKU: ${row.normalized.sku}`);
+        errors.push(`İçe aktarma verisinde mükerrer SKU: ${row.normalized.sku}`);
       }
 
       const byId = row.normalized.productId

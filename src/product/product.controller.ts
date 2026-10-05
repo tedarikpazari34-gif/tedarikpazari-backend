@@ -224,6 +224,48 @@ export class ProductController {
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
+  @Post('bulk-import/xml')
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        file: {
+          type: 'string',
+          format: 'binary',
+        },
+      },
+      required: ['file'],
+    },
+  })
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: {
+        fileSize: 10 * 1024 * 1024,
+        files: 1,
+      },
+    }),
+  )
+  uploadProductXml(
+    @Req() req: any,
+    @UploadedFile()
+    file: {
+      originalname?: string;
+      mimetype?: string;
+      size?: number;
+      buffer?: Buffer;
+    },
+  ) {
+    if (!file) {
+      throw new BadRequestException('XML dosyası yüklenemedi');
+    }
+
+    return this.productImportService.createXmlJob(req.user, file);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
   @Get('bulk-import/jobs/:jobId')
   getImportJob(@Req() req: any, @Param('jobId') jobId: string) {
     return this.productImportService.getJob(req.user, jobId);
