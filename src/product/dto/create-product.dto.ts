@@ -31,12 +31,21 @@ export class CreateProductDto {
   @IsString()
   city?: string;
 
+  @IsOptional()
+  @IsString()
+  sku?: string;
+
   @IsString()
   unitType: string;
 
   @IsInt()
   @Min(1)
   moq: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  quantityStep?: number;
 
   @IsNumber()
   @Min(0)

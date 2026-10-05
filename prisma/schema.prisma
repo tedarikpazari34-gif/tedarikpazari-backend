@@ -125,6 +125,29 @@ enum ShippingOrderStatus {
   DELIVERED
 }
 
+enum ProductImportSource {
+  EXCEL
+  XML
+  API
+}
+
+enum ProductImportStatus {
+  UPLOADED
+  VALIDATED
+  READY
+  IMPORTING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum ProductImportRowAction {
+  NEW
+  UPDATE
+  UNCHANGED
+  ERROR
+}
+
 model Company {
   id                         String        @id @default(cuid())
   name                       String
@@ -188,7 +211,8 @@ model Company {
   shippingOrdersAsSeller    ShippingOrder[] @relation("ShippingOrderSeller")
   shippingOrdersAsLogistics ShippingOrder[] @relation("ShippingOrderLogistics")
 
-  payoutRequests PayoutRequest[]
+  payoutRequests    PayoutRequest[]
+  productImportJobs ProductImportJob[]
 }
 
 model CompanyWallet {
@@ -267,9 +291,11 @@ model Product {
   country        String?
   city           String?
 
-  unitType  String
-  moq       Int
-  basePrice Decimal
+  sku          String?
+  unitType     String
+  moq          Int
+  quantityStep Int     @default(1)
+  basePrice    Decimal
 
   leadTimeDays  Int?
   stockType     String?
@@ -294,6 +320,7 @@ model Product {
   orders       Order[]
   translations ProductTranslation[]
 
+  @@unique([sellerId, sku])
   @@index([sellerId])
   @@index([categoryId])
   @@index([isActive, isApproved])
@@ -450,12 +477,12 @@ model Order {
   shippingDispatchNo String?
   shippedAt          DateTime?
 
-  iyzicoConversationId     String?
-  iyzicoCheckoutToken      String?
-  iyzicoPaymentId          String?
-  iyzicoPaymentTransactionId String? @unique
-  iyzicoPaidAt             DateTime?
-  iyzicoRawResult          Json?
+  iyzicoConversationId       String?
+  iyzicoCheckoutToken        String?
+  iyzicoPaymentId            String?
+  iyzicoPaymentTransactionId String?   @unique
+  iyzicoPaidAt               DateTime?
+  iyzicoRawResult            Json?
 
   paymentAttempts PaymentAttempt[] @relation("OrderPaymentAttempts")
 
@@ -490,7 +517,7 @@ model PaymentAttempt {
   status   PaymentStatus   @default(INITIATED)
 
   conversationId  String?
-  checkoutToken   String?         @unique
+  checkoutToken   String? @unique
   iyzicoPaymentId String?
 
   rawRequest  Json?
@@ -602,14 +629,14 @@ model EscrowEvent {
 }
 
 model LedgerEntry {
-  id            String     @id @default(cuid())
-  type          LedgerType
-  orderId       String?
-  disputeId     String?
-  fromCompanyId String?
-  toCompanyId   String?
-  amount        Decimal
-  currency      String     @default("TRY")
+  id             String     @id @default(cuid())
+  type           LedgerType
+  orderId        String?
+  disputeId      String?
+  fromCompanyId  String?
+  toCompanyId    String?
+  amount         Decimal
+  currency       String     @default("TRY")
   note           String?
   meta           Json?
   idempotencyKey String?    @unique
@@ -874,4 +901,55 @@ model PayoutRequest {
 
   @@index([companyId])
   @@index([status])
+}
+
+model ProductImportJob {
+  id               String              @id @default(cuid())
+  sellerId         String
+  source           ProductImportSource
+  status           ProductImportStatus @default(UPLOADED)
+  originalFileName String?
+  totalRows        Int                 @default(0)
+  readyRows        Int                 @default(0)
+  errorRows        Int                 @default(0)
+  newRows          Int                 @default(0)
+  updateRows       Int                 @default(0)
+  unchangedRows    Int                 @default(0)
+  processedRows    Int                 @default(0)
+  startedAt        DateTime?
+  completedAt      DateTime?
+  failedAt         DateTime?
+  failureMessage   String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  seller Company            @relation(fields: [sellerId], references: [id])
+  rows   ProductImportRow[]
+
+  @@index([sellerId, createdAt])
+  @@index([status])
+}
+
+model ProductImportRow {
+  id          String                 @id @default(cuid())
+  jobId       String
+  rowNumber   Int
+  sku         String?
+  action      ProductImportRowAction
+  productId   String?
+  rawData     Json
+  errors      Json?
+  normalized          Json?
+  processingToken     String?
+  processingStartedAt DateTime?
+  processedAt         DateTime?
+  createdAt           DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+
+  job ProductImportJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, rowNumber])
+  @@index([jobId, action])
+  @@index([jobId, sku])
+  @@index([jobId, processedAt, processingStartedAt])
 }

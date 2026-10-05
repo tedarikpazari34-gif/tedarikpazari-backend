@@ -513,8 +513,10 @@ export class ProductService {
         imageUrl: body.imageUrl || null,
         country: body.country || null,
         city: body.city || null,
+        sku: body.sku?.trim().toUpperCase() || null,
         unitType: body.unitType,
         moq: body.moq,
+        quantityStep: body.quantityStep ?? 1,
         basePrice: body.basePrice,
         leadTimeDays: body.leadTimeDays || null,
         stockType: body.stockType || null,
@@ -522,7 +524,7 @@ export class ProductService {
           body.stockQuantity !== undefined && body.stockQuantity !== null
             ? Number(body.stockQuantity)
             : null,
-        vatRate: body.vatRate || null,
+        vatRate: body.vatRate ?? null,
         rfqEnabled: body.rfqEnabled ?? true,
         isActive: true,
         isApproved: true,
@@ -742,8 +744,14 @@ export class ProductService {
         ...(body.imageUrl !== undefined
           ? { imageUrl: body.imageUrl || null }
           : {}),
+        ...(body.sku !== undefined
+          ? { sku: body.sku?.trim().toUpperCase() || null }
+          : {}),
         ...(body.unitType !== undefined ? { unitType: body.unitType } : {}),
         ...(body.moq !== undefined ? { moq: body.moq } : {}),
+        ...(body.quantityStep !== undefined
+          ? { quantityStep: body.quantityStep }
+          : {}),
         ...(body.basePrice !== undefined ? { basePrice: body.basePrice } : {}),
         ...(body.leadTimeDays !== undefined
           ? { leadTimeDays: body.leadTimeDays || null }
@@ -760,7 +768,7 @@ export class ProductService {
             }
           : {}),
         ...(body.vatRate !== undefined
-          ? { vatRate: body.vatRate || null }
+          ? { vatRate: body.vatRate ?? null }
           : {}),
         ...(body.rfqEnabled !== undefined
           ? { rfqEnabled: body.rfqEnabled }
