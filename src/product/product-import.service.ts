@@ -691,6 +691,16 @@ export class ProductImportService {
         );
       }
 
+      if (
+        row.action === ProductImportRowAction.UPDATE &&
+        existingById &&
+        (existingById.sku ?? '').toUpperCase() !== (row.sku ?? '').toUpperCase()
+      ) {
+        throw new BadRequestException(
+          'Ürünün SKU bilgisi ön kontrolden sonra değişmiş. Excel dosyasını yeniden yükleyin',
+        );
+      }
+
       const existingBySku = await tx.product.findUnique({
         where: {
           sellerId_sku: {
