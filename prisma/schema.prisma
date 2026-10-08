@@ -148,6 +148,14 @@ enum ProductImportRowAction {
   ERROR
 }
 
+enum ProductAttributeType {
+  TEXT
+  NUMBER
+  BOOLEAN
+  SELECT
+  MULTI_SELECT
+}
+
 model Company {
   id                         String        @id @default(cuid())
   name                       String
@@ -275,8 +283,107 @@ model Category {
   products     Product[]
   rfqs         RFQ[]
   translations CategoryTranslation[]
+  attributes   CategoryAttribute[]
 
   @@index([parentId])
+}
+
+model CategoryAttribute {
+  id           String               @id @default(cuid())
+  categoryId   String
+  code         String
+  name         String
+  type         ProductAttributeType
+  isRequired   Boolean              @default(false)
+  isFilterable Boolean              @default(true)
+  isActive     Boolean              @default(true)
+  sortOrder    Int                  @default(0)
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  category     Category                       @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  options      CategoryAttributeOption[]
+  translations CategoryAttributeTranslation[]
+  values       ProductAttributeValue[]
+
+  @@unique([categoryId, code])
+  @@index([categoryId, isActive, sortOrder])
+}
+
+model CategoryAttributeOption {
+  id          String   @id @default(cuid())
+  attributeId String
+  code        String
+  name        String
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  attribute    CategoryAttribute                    @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+  translations CategoryAttributeOptionTranslation[]
+
+  @@unique([attributeId, code])
+  @@index([attributeId, isActive, sortOrder])
+}
+
+model CategoryAttributeTranslation {
+  id          String   @id @default(cuid())
+  attributeId String
+  language    String
+  name        String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  attribute CategoryAttribute @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+
+  @@unique([attributeId, language])
+  @@index([language])
+}
+
+model CategoryAttributeOptionTranslation {
+  id        String   @id @default(cuid())
+  optionId  String
+  language  String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  option CategoryAttributeOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+
+  @@unique([optionId, language])
+  @@index([language])
+}
+
+model ProductAttributeValue {
+  id           String   @id @default(cuid())
+  productId    String
+  attributeId  String
+  textValue    String?
+  numberValue  Decimal?
+  booleanValue Boolean?
+  optionCodes  String[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  product   Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  attribute CategoryAttribute @relation(fields: [attributeId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, attributeId])
+  @@index([attributeId])
+}
+
+model Brand {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  slug      String   @unique
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products Product[]
+
+  @@index([isActive])
 }
 
 model Product {
@@ -291,11 +398,14 @@ model Product {
   country        String?
   city           String?
 
-  sku          String?
-  unitType     String
-  moq          Int
-  quantityStep Int     @default(1)
-  basePrice    Decimal
+  sku              String?
+  brandId          String?
+  barcode          String?
+  manufacturerCode String?
+  unitType         String
+  moq              Int
+  quantityStep     Int     @default(1)
+  basePrice        Decimal
 
   leadTimeDays  Int?
   stockType     String?
@@ -312,18 +422,45 @@ model Product {
 
   seller   Company   @relation(fields: [sellerId], references: [id])
   category Category? @relation(fields: [categoryId], references: [id])
+  brand    Brand?    @relation(fields: [brandId], references: [id], onDelete: SetNull)
 
-  images       ProductImage[]
-  rfqs         RFQ[]
-  favorites    Favorite[]
-  reports      ProductReport[]
-  orders       Order[]
-  translations ProductTranslation[]
+  images          ProductImage[]
+  rfqs            RFQ[]
+  favorites       Favorite[]
+  reports         ProductReport[]
+  orders          Order[]
+  translations    ProductTranslation[]
+  variants        ProductVariant[]
+  attributeValues ProductAttributeValue[]
 
   @@unique([sellerId, sku])
   @@index([sellerId])
   @@index([categoryId])
+  @@index([brandId])
+  @@index([barcode])
+  @@index([manufacturerCode])
   @@index([isActive, isApproved])
+}
+
+model ProductVariant {
+  id               String   @id @default(cuid())
+  productId        String
+  name             String
+  sku              String?
+  barcode          String?
+  manufacturerCode String?
+  price            Decimal?
+  stockQuantity    Int?
+  isActive         Boolean  @default(true)
+  sortOrder        Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@unique([productId, sku])
+  @@index([productId, isActive])
+  @@index([barcode])
 }
 
 model ProductTranslation {
@@ -931,20 +1068,20 @@ model ProductImportJob {
 }
 
 model ProductImportRow {
-  id          String                 @id @default(cuid())
-  jobId       String
-  rowNumber   Int
-  sku         String?
-  action      ProductImportRowAction
-  productId   String?
-  rawData     Json
-  errors      Json?
+  id                  String                 @id @default(cuid())
+  jobId               String
+  rowNumber           Int
+  sku                 String?
+  action              ProductImportRowAction
+  productId           String?
+  rawData             Json
+  errors              Json?
   normalized          Json?
   processingToken     String?
   processingStartedAt DateTime?
   processedAt         DateTime?
   createdAt           DateTime               @default(now())
-  updatedAt   DateTime               @updatedAt
+  updatedAt           DateTime               @updatedAt
 
   job ProductImportJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
 

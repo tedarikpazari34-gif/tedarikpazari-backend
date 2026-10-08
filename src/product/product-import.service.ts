@@ -7,6 +7,7 @@ import {
 import {
   CompanyStatus,
   Prisma,
+  ProductAttributeType,
   ProductImportRowAction,
   ProductImportSource,
   ProductImportStatus,
@@ -16,15 +17,87 @@ import * as ExcelJS from 'exceljs';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma.service';
+import { ProductCatalogService } from './product-catalog.service';
+import {
+  ProductAttributeValueDto,
+  ProductVariantDto,
+} from './dto/create-product.dto';
 
 type ImportUser = {
   role: Role;
   companyId: string;
 };
 
+type RawImportVariant = {
+  parentSku: string;
+  name: string;
+  sku: string | null;
+  barcode: string | null;
+  manufacturerCode: string | null;
+  price: number | null;
+  stockQuantity: number | null;
+  isActive: boolean;
+  sortOrder: number;
+};
+
+type RawImportAttributeValue = {
+  parentSku: string;
+  attributeCode: string;
+  value: string;
+};
+
+type VariantExcelField =
+  | 'parentSku'
+  | 'name'
+  | 'sku'
+  | 'barcode'
+  | 'manufacturerCode'
+  | 'price'
+  | 'stockQuantity'
+  | 'isActive'
+  | 'sortOrder';
+
+type AttributeExcelField =
+  | 'parentSku'
+  | 'attributeCode'
+  | 'value';
+
+type ImportRelatedRows = {
+  variants?: Array<{
+    rowNumber: number;
+    raw: Record<VariantExcelField, unknown>;
+  }>;
+  attributes?: Array<{
+    rowNumber: number;
+    raw: Record<AttributeExcelField, unknown>;
+  }>;
+};
+
+type NormalizedImportVariant = {
+  name: string;
+  sku: string | null;
+  barcode: string | null;
+  manufacturerCode: string | null;
+  price: number | null;
+  stockQuantity: number | null;
+  isActive: boolean;
+  sortOrder: number;
+};
+
+type NormalizedImportAttributeValue = {
+  attributeId: string;
+  textValue: string | null;
+  numberValue: number | null;
+  booleanValue: boolean | null;
+  optionCodes: string[];
+};
+
 type NormalizedProductRow = {
   productId: string | null;
   sku: string;
+  brand: string | null;
+  barcode: string | null;
+  manufacturerCode: string | null;
   title: string;
   description: string | null;
   categoryId: string | null;
@@ -42,11 +115,18 @@ type NormalizedProductRow = {
   vatRate: number | null;
   imageUrlsProvided: boolean;
   imageUrls: string[];
+  variantsProvided: boolean;
+  variants: NormalizedImportVariant[];
+  attributeValuesProvided: boolean;
+  attributeValues: NormalizedImportAttributeValue[];
 };
 
 @Injectable()
 export class ProductImportService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly catalogService: ProductCatalogService,
+  ) {}
 
   private async requireVerifiedSellerCompany(user: ImportUser) {
     if (user.role !== Role.SELLER) {
@@ -124,6 +204,17 @@ export class ProductImportService {
     urunkodu: 'sku',
     stokkodu: 'sku',
 
+    marka: 'brand',
+    brand: 'brand',
+
+    barkod: 'barcode',
+    gtin: 'barcode',
+    barcode: 'barcode',
+
+    ureticikodu: 'manufacturerCode',
+    modelkodu: 'manufacturerCode',
+    manufacturercode: 'manufacturerCode',
+
     urunadi: 'title',
     urunismi: 'title',
     baslik: 'title',
@@ -183,6 +274,40 @@ export class ProductImportService {
     country: 'country',
     city: 'city',
     sourcelanguage: 'sourceLanguage',
+  };
+
+  private readonly variantHeaderAliases: Record<string, VariantExcelField> = {
+    anaurunsku: 'parentSku',
+    parentsku: 'parentSku',
+    varyantadi: 'name',
+    variantname: 'name',
+    varyantsku: 'sku',
+    variantsku: 'sku',
+    barkod: 'barcode',
+    gtin: 'barcode',
+    barcode: 'barcode',
+    ureticikodu: 'manufacturerCode',
+    modelkodu: 'manufacturerCode',
+    manufacturercode: 'manufacturerCode',
+    fiyat: 'price',
+    price: 'price',
+    stok: 'stockQuantity',
+    stokmiktari: 'stockQuantity',
+    stockquantity: 'stockQuantity',
+    aktif: 'isActive',
+    active: 'isActive',
+    isactive: 'isActive',
+    sira: 'sortOrder',
+    sortorder: 'sortOrder',
+  };
+
+  private readonly attributeHeaderAliases: Record<string, AttributeExcelField> = {
+    anaurunsku: 'parentSku',
+    parentsku: 'parentSku',
+    ozellikkodu: 'attributeCode',
+    attributecode: 'attributeCode',
+    deger: 'value',
+    value: 'value',
   };
 
   private parseImageUrls(value: unknown): string[] {
@@ -341,6 +466,9 @@ export class ProductImportService {
   private readonly excelHeaders = [
     'Ürün ID (Değiştirmeyin)',
     'SKU',
+    'Marka',
+    'Barkod / GTIN',
+    'Üretici / Model Kodu',
     'Ürün Adı',
     'Kategori Yolu',
     'Açıklama',
@@ -357,6 +485,48 @@ export class ProductImportService {
     'Şehir',
     'Kaynak Dil',
   ];
+
+  private readonly variantExcelHeaders = [
+    'Ana Ürün SKU',
+    'Varyant Adı',
+    'Varyant SKU',
+    'Barkod / GTIN',
+    'Üretici / Model Kodu',
+    'Fiyat',
+    'Stok',
+    'Aktif',
+    'Sıra',
+  ];
+
+  private readonly attributeExcelHeaders = [
+    'Ana Ürün SKU',
+    'Özellik Kodu',
+    'Değer',
+  ];
+
+  private prepareRelatedWorksheet(
+    worksheet: ExcelJS.Worksheet,
+    headers: string[],
+    widths: number[],
+  ): void {
+    worksheet.addRow(headers);
+    worksheet.views = [{ state: 'frozen', ySplit: 1 }];
+    worksheet.autoFilter = {
+      from: { row: 1, column: 1 },
+      to: { row: 1, column: headers.length },
+    };
+
+    const headerRow = worksheet.getRow(1);
+    headerRow.font = { bold: true };
+    headerRow.alignment = {
+      vertical: 'middle',
+      horizontal: 'center',
+    };
+
+    headers.forEach((_, index) => {
+      worksheet.getColumn(index + 1).width = widths[index] ?? 18;
+    });
+  }
 
   private prepareWorksheet(
     worksheet: ExcelJS.Worksheet,
@@ -381,8 +551,8 @@ export class ProductImportService {
     };
 
     const widths = [
-      30, 20, 34, 42, 48, 16, 16, 12, 18,
-      22, 14, 18, 16, 48, 18, 18, 14,
+      30, 20, 24, 20, 24, 34, 42, 48, 16, 16,
+      12, 18, 22, 14, 18, 16, 48, 18, 18, 14,
     ];
 
     headers.forEach((_, index) => {
@@ -399,6 +569,9 @@ export class ProductImportService {
     return [
       row.productId,
       row.sku,
+      row.brand,
+      row.barcode,
+      row.manufacturerCode,
       row.title,
       row.categoryPath,
       row.description,
@@ -428,6 +601,9 @@ export class ProductImportService {
     worksheet.addRow([
       null,
       'ORNEK-001',
+      'Örnek Marka',
+      '8690000000001',
+      'MODEL-001',
       'Örnek Ürün',
       'Ana Sektör > Alt Kategori > Ürün Grubu',
       'Ürün açıklaması',
@@ -445,11 +621,49 @@ export class ProductImportService {
       'tr',
     ]);
 
+    const variantsWorksheet = workbook.addWorksheet('Varyantlar');
+    this.prepareRelatedWorksheet(
+      variantsWorksheet,
+      this.variantExcelHeaders,
+      [20, 28, 20, 20, 24, 16, 14, 12, 10],
+    );
+    variantsWorksheet.addRow([
+      'ORNEK-001',
+      'Kırmızı / L',
+      'ORNEK-001-KRM-L',
+      '8690000000002',
+      'MODEL-001-KRM-L',
+      95,
+      25,
+      'Evet',
+      0,
+    ]);
+
+    const attributesWorksheet = workbook.addWorksheet('Özellikler');
+    this.prepareRelatedWorksheet(
+      attributesWorksheet,
+      this.attributeExcelHeaders,
+      [20, 24, 48],
+    );
+    attributesWorksheet.addRow([
+      'ORNEK-001',
+      'renk',
+      'kirmizi',
+    ]);
+    attributesWorksheet.addRow([
+      'ORNEK-001',
+      'beden',
+      'l',
+    ]);
+
     const info = workbook.addWorksheet('Açıklamalar');
     info.addRows([
       ['Alan', 'Açıklama'],
       ['Ürün ID (Değiştirmeyin)', 'Mevcut ürün dışa aktarımında sistem tarafından doldurulur. Değiştirmeyin. Yeni ürünlerde boş bırakın.'],
       ['SKU', 'Zorunlu ve satıcı hesabınız içinde benzersiz ürün kodu.'],
+      ['Marka', 'Opsiyonel. Sistemde tanımlı ortak marka adı kullanılacaktır.'],
+      ['Barkod / GTIN', 'Opsiyonel. Ürünün barkod veya GTIN kodu.'],
+      ['Üretici / Model Kodu', 'Opsiyonel. Üretici parça, model veya katalog kodu.'],
       ['Ürün Adı', 'Zorunlu.'],
       ['Kategori Yolu', 'En fazla 3 seviye. Örnek: Ana Sektör > Alt Kategori > Ürün Grubu'],
       ['Birim', 'Zorunlu. Örnek: Adet, Koli, Kg.'],
@@ -459,6 +673,10 @@ export class ProductImportService {
       ['Sipariş Artış Miktarı', 'Boşsa 1 kabul edilir. Örnek MOQ 10, artış 5 => 10, 15, 20.'],
       ['Görsel URL\'leri', 'Birden fazla adresi | işaretiyle ayırın. İlk geçerli adres kapak görselidir. Geçersiz adresler ürün satırını durdurmadan atlanır.'],
       ['Kaynak Dil', 'Boşsa tr kabul edilir.'],
+      ['Varyantlar Sayfası', 'Opsiyonel. Ana Ürün SKU ile Ürünler sayfasındaki ürüne bağlanır. Aynı ürün için birden fazla varyant satırı eklenebilir.'],
+      ['Varyant Aktif', 'Evet/Hayır veya true/false kullanılabilir. Boşsa aktif kabul edilir.'],
+      ['Özellikler Sayfası', 'Opsiyonel. Ana Ürün SKU ve kategoriye tanımlı Özellik Kodu kullanılır. Aynı ürün için birden fazla özellik satırı eklenebilir.'],
+      ['Özellik Değeri', 'Metin/sayı/evet-hayır veya seçenek kodu kullanılır. Çoklu seçimlerde seçenek kodlarını | ile ayırın.'],
       ['Güvenlik', 'Excel formülleri içe aktarılmaz. Görsel URL adresleri sunucu tarafından otomatik ziyaret edilmez.'],
     ]);
 
@@ -480,6 +698,13 @@ export class ProductImportService {
       select: {
         id: true,
         sku: true,
+        barcode: true,
+        manufacturerCode: true,
+        brand: {
+          select: {
+            name: true,
+          },
+        },
         title: true,
         description: true,
         categoryId: true,
@@ -502,6 +727,30 @@ export class ProductImportService {
           },
           orderBy: { sortOrder: 'asc' },
         },
+        variants: {
+          select: {
+            name: true,
+            sku: true,
+            barcode: true,
+            manufacturerCode: true,
+            price: true,
+            stockQuantity: true,
+            isActive: true,
+            sortOrder: true,
+          },
+          orderBy: { sortOrder: 'asc' },
+        },
+        attributeValues: {
+          select: {
+            textValue: true,
+            numberValue: true,
+            booleanValue: true,
+            optionCodes: true,
+            attribute: {
+              select: { code: true },
+            },
+          },
+        },
       },
     });
 
@@ -510,7 +759,29 @@ export class ProductImportService {
     const worksheet = workbook.addWorksheet('Ürünler');
     this.prepareWorksheet(worksheet);
 
+    const variantsWorksheet = workbook.addWorksheet('Varyantlar');
+    this.prepareRelatedWorksheet(
+      variantsWorksheet,
+      this.variantExcelHeaders,
+      [20, 28, 20, 20, 24, 16, 14, 12, 10],
+    );
+
+    const attributesWorksheet = workbook.addWorksheet('Özellikler');
+    this.prepareRelatedWorksheet(
+      attributesWorksheet,
+      this.attributeExcelHeaders,
+      [20, 24, 48],
+    );
+
     for (const product of products) {
+      if (
+        !product.sku?.trim() &&
+        (product.variants.length > 0 || product.attributeValues.length > 0)
+      ) {
+        throw new BadRequestException(
+          'Varyant veya özellik içeren ürünün SKU bilgisi eksik. Excel dışa aktarımı için önce ürün SKU bilgisini tamamlayın.',
+        );
+      }
       const imageUrls =
         product.images.length > 0
           ? product.images.map((image) => image.url)
@@ -522,6 +793,9 @@ export class ProductImportService {
         this.excelRowFromNormalized({
           productId: product.id,
           sku: product.sku ?? '',
+          brand: product.brand?.name ?? null,
+          barcode: product.barcode,
+          manufacturerCode: product.manufacturerCode,
           title: product.title,
           description: product.description,
           categoryId: product.categoryId,
@@ -541,8 +815,43 @@ export class ProductImportService {
           vatRate: product.vatRate,
           imageUrlsProvided: imageUrls.length > 0,
           imageUrls,
+          variantsProvided: false,
+          variants: [],
+          attributeValuesProvided: false,
+          attributeValues: [],
         }),
       );
+
+      for (const variant of product.variants) {
+        variantsWorksheet.addRow([
+          product.sku,
+          variant.name,
+          variant.sku,
+          variant.barcode,
+          variant.manufacturerCode,
+          variant.price === null ? null : Number(variant.price),
+          variant.stockQuantity,
+          variant.isActive ? 'Evet' : 'Hayır',
+          variant.sortOrder,
+        ]);
+      }
+
+      for (const value of product.attributeValues) {
+        const serializedValue =
+          value.optionCodes.length > 0
+            ? value.optionCodes.join(' | ')
+            : value.booleanValue !== null
+              ? value.booleanValue ? 'Evet' : 'Hayır'
+              : value.numberValue !== null
+                ? Number(value.numberValue)
+                : value.textValue ?? '';
+
+        attributesWorksheet.addRow([
+          product.sku,
+          value.attribute.code,
+          serializedValue,
+        ]);
+      }
     }
 
     return (await workbook.xlsx.writeBuffer()) as unknown as Buffer;
@@ -659,7 +968,18 @@ export class ProductImportService {
       throw new BadRequestException('İçe aktarma satırı geçersiz');
     }
 
-    return value as unknown as NormalizedProductRow;
+    const normalized = value as unknown as Partial<NormalizedProductRow>;
+
+    return {
+      ...normalized,
+      brand: normalized.brand ?? null,
+      barcode: normalized.barcode ?? null,
+      manufacturerCode: normalized.manufacturerCode ?? null,
+      variantsProvided: normalized.variantsProvided ?? false,
+      variants: normalized.variants ?? [],
+      attributeValuesProvided: normalized.attributeValuesProvided ?? false,
+      attributeValues: normalized.attributeValues ?? [],
+    } as NormalizedProductRow;
   }
 
   private async processImportRow(
@@ -695,6 +1015,7 @@ export class ProductImportService {
             select: {
               id: true,
               sku: true,
+              categoryId: true,
             },
           })
         : null;
@@ -725,6 +1046,7 @@ export class ProductImportService {
         select: {
           id: true,
           sku: true,
+          categoryId: true,
         },
       });
 
@@ -739,6 +1061,50 @@ export class ProductImportService {
       }
 
       const existing = existingById ?? existingBySku;
+
+      if (row.action === ProductImportRowAction.UPDATE) {
+        if (!row.productId || !existingById) {
+          throw new BadRequestException(
+            'Güncellenecek ürün kimliği doğrulanamadı. İçe aktarma verisini yeniden yükleyin',
+          );
+        }
+
+        if (
+          (existingById.sku ?? '').toUpperCase() !==
+          normalized.sku.toUpperCase()
+        ) {
+          throw new BadRequestException(
+            'Ürün SKU bilgisi ön kontrolden sonra değişmiş. İçe aktarma verisini yeniden yükleyin',
+          );
+        }
+      }
+
+      if (row.action === ProductImportRowAction.NEW && existing) {
+        throw new BadRequestException(
+          'Yeni ürün SKU bilgisi artık mevcut. İçe aktarma verisini yeniden yükleyin',
+        );
+      }
+
+      if (row.action === ProductImportRowAction.UPDATE && !existing) {
+        throw new BadRequestException(
+          'Güncellenecek ürün artık bulunamıyor',
+        );
+      }
+
+      if (
+        existing &&
+        existing.categoryId !== normalized.categoryId &&
+        !normalized.attributeValuesProvided
+      ) {
+        throw new BadRequestException(
+          'Ürün kategorisi değiştirildiğinde Özellikler verisi de sağlanmalıdır',
+        );
+      }
+
+      const brandId = await this.catalogService.resolveBrandByName(
+        tx,
+        normalized.brand,
+      );
       let productId: string;
 
       if (existing) {
@@ -746,6 +1112,9 @@ export class ProductImportService {
           where: { id: existing.id },
           data: {
             sku: normalized.sku,
+            brandId,
+            barcode: normalized.barcode,
+            manufacturerCode: normalized.manufacturerCode,
             categoryId: normalized.categoryId,
             title: normalized.title,
             description: normalized.description,
@@ -780,6 +1149,9 @@ export class ProductImportService {
             sellerId,
             categoryId: normalized.categoryId,
             sku: normalized.sku,
+            brandId,
+            barcode: normalized.barcode,
+            manufacturerCode: normalized.manufacturerCode,
             title: normalized.title,
             description: normalized.description,
             sourceLanguage: normalized.sourceLanguage,
@@ -820,6 +1192,50 @@ export class ProductImportService {
           });
         }
       }
+
+    if (normalized.variantsProvided) {
+      await tx.productVariant.deleteMany({
+        where: { productId },
+      });
+
+      if (normalized.variants.length > 0) {
+        await tx.productVariant.createMany({
+          data: normalized.variants.map((variant) => ({
+            productId,
+            name: variant.name,
+            sku: variant.sku,
+            barcode: variant.barcode,
+            manufacturerCode: variant.manufacturerCode,
+            price: variant.price,
+            stockQuantity: variant.stockQuantity,
+            isActive: variant.isActive,
+            sortOrder: variant.sortOrder,
+          })),
+        });
+      }
+    }
+
+    if (
+      normalized.attributeValuesProvided ||
+      (existing && existing.categoryId !== normalized.categoryId)
+    ) {
+      await tx.productAttributeValue.deleteMany({
+        where: { productId },
+      });
+
+      if (normalized.attributeValues.length > 0) {
+        await tx.productAttributeValue.createMany({
+          data: normalized.attributeValues.map((value) => ({
+            productId,
+            attributeId: value.attributeId,
+            textValue: value.textValue,
+            numberValue: value.numberValue,
+            booleanValue: value.booleanValue,
+            optionCodes: value.optionCodes,
+          })),
+        });
+      }
+    }
 
     await tx.productImportRow.update({
       where: { id: row.id },
@@ -1387,11 +1803,58 @@ export class ProductImportService {
       );
     }
 
+    const relatedRows: ImportRelatedRows = {};
+
+    const variantsWorksheet = workbook.getWorksheet('Varyantlar');
+    if (variantsWorksheet) {
+      const variantHeaderMap = this.getRelatedHeaderMap(
+        variantsWorksheet,
+        this.variantHeaderAliases,
+      );
+      const variantFields = new Set(variantHeaderMap.values());
+
+      if (!variantFields.has('parentSku') || !variantFields.has('name')) {
+        throw new BadRequestException(
+          'Varyantlar sayfasında Ana Ürün SKU ve Varyant Adı başlıkları zorunludur',
+        );
+      }
+
+      relatedRows.variants = this.readRelatedExcelRows(
+        variantsWorksheet,
+        variantHeaderMap,
+      );
+    }
+
+    const attributesWorksheet = workbook.getWorksheet('Özellikler');
+    if (attributesWorksheet) {
+      const attributeHeaderMap = this.getRelatedHeaderMap(
+        attributesWorksheet,
+        this.attributeHeaderAliases,
+      );
+      const attributeFields = new Set(attributeHeaderMap.values());
+
+      if (
+        !attributeFields.has('parentSku') ||
+        !attributeFields.has('attributeCode') ||
+        !attributeFields.has('value')
+      ) {
+        throw new BadRequestException(
+          'Özellikler sayfasında Ana Ürün SKU, Özellik Kodu ve Değer başlıkları zorunludur',
+        );
+      }
+
+      relatedRows.attributes = this.readRelatedExcelRows(
+        attributesWorksheet,
+        attributeHeaderMap,
+      );
+    }
+
     return this.createImportJob(
       company.id,
       ProductImportSource.EXCEL,
       fileName,
       rawRows,
+      relatedRows,
     );
   }
 
@@ -1400,6 +1863,7 @@ export class ProductImportService {
     source: ProductImportSource,
     originalFileName: string,
     rawRows: Array<{ rowNumber: number; raw: Record<string, unknown> }>,
+    relatedRows: ImportRelatedRows = {},
   ) {
     const categoryMap = await this.buildCategoryPathMap();
 
@@ -1414,7 +1878,330 @@ export class ProductImportService {
       };
     });
 
-    const classifiedRows = await this.classifyRows(sellerId, normalizedRows);
+    const activeBrands = await this.prisma.brand.findMany({
+      where: { isActive: true },
+      select: { name: true },
+    });
+
+    const activeBrandNames = new Set(
+      activeBrands.map((brand) =>
+        brand.name.trim().toLocaleLowerCase('tr-TR'),
+      ),
+    );
+
+    for (const row of normalizedRows) {
+      const brandName = row.normalized.brand;
+
+      if (
+        brandName &&
+        !activeBrandNames.has(
+          brandName.trim().toLocaleLowerCase('tr-TR'),
+        )
+      ) {
+        row.errors.push(
+          `Marka sistemde bulunamadı veya aktif değil: ${brandName}`,
+        );
+      }
+    }
+
+    const normalizedBySku = new Map(
+      normalizedRows
+        .filter((row) => Boolean(row.normalized.sku))
+        .map((row) => [row.normalized.sku, row]),
+    );
+
+    const variantsByParentSku = new Map<string, NormalizedImportVariant[]>();
+    const variantSkusByParentSku = new Map<string, Set<string>>();
+
+    for (const variantRow of relatedRows.variants ?? []) {
+      const result = this.normalizeImportedVariant(variantRow.raw);
+      const parentSku = this.text(variantRow.raw.parentSku).toUpperCase();
+
+      if (!parentSku) {
+        throw new BadRequestException(
+          `Varyantlar satır ${variantRow.rowNumber}: Ana Ürün SKU zorunludur`,
+        );
+      }
+
+      const parentRow = normalizedBySku.get(parentSku);
+
+      if (!parentRow) {
+        throw new BadRequestException(
+          `Varyantlar satır ${variantRow.rowNumber}: Ana Ürün SKU Ürünler sayfasında bulunamadı: ${parentSku}`,
+        );
+      }
+
+      parentRow.normalized.variantsProvided = true;
+
+      if (!result.variant) {
+        parentRow.errors.push(
+          ...result.errors.map(
+            (error) => `Varyantlar satır ${variantRow.rowNumber}: ${error}`,
+          ),
+        );
+        continue;
+      }
+
+      const variant: ProductVariantDto = {
+        name: result.variant.name,
+        sku: result.variant.sku ?? undefined,
+        barcode: result.variant.barcode ?? undefined,
+        manufacturerCode: result.variant.manufacturerCode ?? undefined,
+        price: result.variant.price ?? undefined,
+        stockQuantity: result.variant.stockQuantity ?? undefined,
+        isActive: result.variant.isActive,
+        sortOrder: result.variant.sortOrder,
+      };
+
+      let normalizedVariant: NormalizedImportVariant;
+
+      try {
+        normalizedVariant = this.catalogService.normalizeVariants([variant])[0];
+      } catch (error) {
+        parentRow.errors.push(
+          `Varyantlar satır ${variantRow.rowNumber}: ${
+            error instanceof Error ? error.message : 'Varyant doğrulanamadı'
+          }`,
+        );
+        continue;
+      }
+
+      if (normalizedVariant.sku) {
+        const seenSkus =
+          variantSkusByParentSku.get(parentSku) ?? new Set<string>();
+
+        if (seenSkus.has(normalizedVariant.sku)) {
+          parentRow.errors.push(
+            `Varyantlar satır ${variantRow.rowNumber}: Aynı varyant SKU birden fazla kez kullanılamaz: ${normalizedVariant.sku}`,
+          );
+          continue;
+        }
+
+        seenSkus.add(normalizedVariant.sku);
+        variantSkusByParentSku.set(parentSku, seenSkus);
+      }
+
+      const variants = variantsByParentSku.get(parentSku) ?? [];
+      variants.push(normalizedVariant);
+      variantsByParentSku.set(parentSku, variants);
+    }
+
+    for (const [parentSku, variants] of variantsByParentSku.entries()) {
+      const parentRow = normalizedBySku.get(parentSku);
+      if (parentRow) {
+        parentRow.normalized.variants = variants;
+      }
+    }
+
+    const attributeCategoryIds = [
+      ...new Set(
+        normalizedRows
+          .map((row) => row.normalized.categoryId)
+          .filter((categoryId): categoryId is string => Boolean(categoryId)),
+      ),
+    ];
+
+    const categoryAttributes =
+      attributeCategoryIds.length === 0
+        ? []
+        : await this.prisma.categoryAttribute.findMany({
+            where: {
+              categoryId: { in: attributeCategoryIds },
+              isActive: true,
+            },
+            select: {
+              id: true,
+              categoryId: true,
+              code: true,
+              name: true,
+              type: true,
+              isRequired: true,
+              options: {
+                where: { isActive: true },
+                select: {
+                  code: true,
+                },
+              },
+            },
+          });
+
+    const attributesByCategoryAndCode = new Map(
+      categoryAttributes.map((attribute) => [
+        `${attribute.categoryId}\0${attribute.code}`,
+        attribute,
+      ]),
+    );
+
+    const requiredAttributesByCategory = new Map<
+      string,
+      typeof categoryAttributes
+    >();
+
+    for (const attribute of categoryAttributes) {
+      if (!attribute.isRequired) continue;
+
+      const required =
+        requiredAttributesByCategory.get(attribute.categoryId) ?? [];
+      required.push(attribute);
+      requiredAttributesByCategory.set(attribute.categoryId, required);
+    }
+
+    const attributeValuesByParentSku = new Map<
+      string,
+      NormalizedImportAttributeValue[]
+    >();
+    const seenAttributeIdsByParentSku = new Map<string, Set<string>>();
+
+    for (const attributeRow of relatedRows.attributes ?? []) {
+      const parentSku = this.text(
+        attributeRow.raw.parentSku,
+      ).toUpperCase();
+
+      if (!parentSku) {
+        throw new BadRequestException(
+          `Özellikler satır ${attributeRow.rowNumber}: Ana Ürün SKU zorunludur`,
+        );
+      }
+
+      const parentRow = normalizedBySku.get(parentSku);
+
+      if (!parentRow) {
+        throw new BadRequestException(
+          `Özellikler satır ${attributeRow.rowNumber}: Ana Ürün SKU Ürünler sayfasında bulunamadı: ${parentSku}`,
+        );
+      }
+
+      parentRow.normalized.attributeValuesProvided = true;
+
+      if (
+        attributeRow.raw.parentSku === '__FORMULA_NOT_ALLOWED__' ||
+        attributeRow.raw.attributeCode === '__FORMULA_NOT_ALLOWED__'
+      ) {
+        parentRow.errors.push(
+          `Özellikler satır ${attributeRow.rowNumber}: Excel formülü kullanılamaz`,
+        );
+        continue;
+      }
+
+      const categoryId = parentRow.normalized.categoryId;
+
+      if (!categoryId) {
+        parentRow.errors.push(
+          `Özellikler satır ${attributeRow.rowNumber}: Ürün kategorisi bulunmadan özellik eşleştirilemez`,
+        );
+        continue;
+      }
+
+      const attributeCode = this.text(attributeRow.raw.attributeCode);
+
+      if (!attributeCode) {
+        parentRow.errors.push(
+          `Özellikler satır ${attributeRow.rowNumber}: Özellik Kodu zorunludur`,
+        );
+        continue;
+      }
+
+      const attribute = attributesByCategoryAndCode.get(
+        `${categoryId}\0${attributeCode}`,
+      );
+
+      if (!attribute) {
+        parentRow.errors.push(
+          `Özellikler satır ${attributeRow.rowNumber}: Özellik kodu seçilen kategoriye ait değil veya aktif değil: ${attributeCode}`,
+        );
+        continue;
+      }
+
+      const seenAttributeIds =
+        seenAttributeIdsByParentSku.get(parentSku) ?? new Set<string>();
+
+      if (seenAttributeIds.has(attribute.id)) {
+        parentRow.errors.push(
+          `Özellikler satır ${attributeRow.rowNumber}: Aynı özellik bir ürün için birden fazla kez kullanılamaz: ${attributeCode}`,
+        );
+        continue;
+      }
+
+      seenAttributeIds.add(attribute.id);
+      seenAttributeIdsByParentSku.set(parentSku, seenAttributeIds);
+
+      const result = this.normalizeImportedAttributeValue(
+        attribute.id,
+        attribute.type,
+        attributeRow.raw.value,
+      );
+
+      if (!result.value) {
+        parentRow.errors.push(
+          ...result.errors.map(
+            (error) => `Özellikler satır ${attributeRow.rowNumber}: ${error}`,
+          ),
+        );
+        continue;
+      }
+
+      if (
+        attribute.type === ProductAttributeType.SELECT ||
+        attribute.type === ProductAttributeType.MULTI_SELECT
+      ) {
+        const allowedOptionCodes = new Set(
+          attribute.options.map((option) => option.code),
+        );
+        const invalidOptionCodes = (result.value.optionCodes ?? []).filter(
+          (code) => !allowedOptionCodes.has(code),
+        );
+
+        if (invalidOptionCodes.length > 0) {
+          parentRow.errors.push(
+            `Özellikler satır ${attributeRow.rowNumber}: Geçersiz veya aktif olmayan seçenek kodu: ${invalidOptionCodes.join(', ')}`,
+          );
+          continue;
+        }
+      }
+
+      const values = attributeValuesByParentSku.get(parentSku) ?? [];
+
+      values.push({
+        attributeId: result.value.attributeId,
+        textValue: result.value.textValue ?? null,
+        numberValue: result.value.numberValue ?? null,
+        booleanValue: result.value.booleanValue ?? null,
+        optionCodes: result.value.optionCodes ?? [],
+      });
+
+      attributeValuesByParentSku.set(parentSku, values);
+    }
+
+    for (const [parentSku, parentRow] of normalizedBySku.entries()) {
+      if (!parentRow.normalized.attributeValuesProvided) continue;
+
+      parentRow.normalized.attributeValues =
+        attributeValuesByParentSku.get(parentSku) ?? [];
+
+      const categoryId = parentRow.normalized.categoryId;
+      if (!categoryId) continue;
+
+      const providedAttributeIds =
+        seenAttributeIdsByParentSku.get(parentSku) ?? new Set<string>();
+
+      const missingRequired = (
+        requiredAttributesByCategory.get(categoryId) ?? []
+      ).filter((attribute) => !providedAttributeIds.has(attribute.id));
+
+      if (missingRequired.length > 0) {
+        parentRow.errors.push(
+          `Zorunlu özellikler eksik: ${missingRequired
+            .map((attribute) => attribute.name)
+            .join(', ')}`,
+        );
+      }
+    }
+
+    const classifiedRows = await this.classifyRows(
+      sellerId,
+      normalizedRows,
+      requiredAttributesByCategory,
+    );
 
     const counts = {
       totalRows: classifiedRows.length,
@@ -1512,6 +2299,9 @@ export class ProductImportService {
   private productMatchesNormalized(
     product: {
       sku: string | null;
+      brand: { name: string } | null;
+      barcode: string | null;
+      manufacturerCode: string | null;
       categoryId: string | null;
       title: string;
       description: string | null;
@@ -1532,6 +2322,23 @@ export class ProductImportService {
         sortOrder: number;
         isCover: boolean;
       }>;
+      variants: Array<{
+        name: string;
+        sku: string | null;
+        barcode: string | null;
+        manufacturerCode: string | null;
+        price: Prisma.Decimal | null;
+        stockQuantity: number | null;
+        isActive: boolean;
+        sortOrder: number;
+      }>;
+      attributeValues: Array<{
+        attributeId: string;
+        textValue: string | null;
+        numberValue: Prisma.Decimal | null;
+        booleanValue: boolean | null;
+        optionCodes: string[];
+      }>;
     },
     normalized: NormalizedProductRow,
   ): boolean {
@@ -1547,8 +2354,117 @@ export class ProductImportService {
       (existingImages.length === expectedImages.length &&
         existingImages.every((url, index) => url === expectedImages[index]));
 
+    const variantsMatch =
+      !normalized.variantsProvided ||
+      (() => {
+        const existingVariants = product.variants
+          .map((variant) => ({
+            name: variant.name,
+            sku: variant.sku ?? null,
+            barcode: variant.barcode ?? null,
+            manufacturerCode: variant.manufacturerCode ?? null,
+            price: variant.price === null ? null : Number(variant.price),
+            stockQuantity: variant.stockQuantity,
+            isActive: variant.isActive,
+            sortOrder: variant.sortOrder,
+          }))
+          .sort(
+            (a, b) =>
+              a.sortOrder - b.sortOrder ||
+              (a.sku ?? '').localeCompare(b.sku ?? '') ||
+              a.name.localeCompare(b.name),
+          );
+
+        const expectedVariants = normalized.variants
+          .map((variant) => ({
+            name: variant.name,
+            sku: variant.sku ?? null,
+            barcode: variant.barcode ?? null,
+            manufacturerCode: variant.manufacturerCode ?? null,
+            price: variant.price ?? null,
+            stockQuantity: variant.stockQuantity ?? null,
+            isActive: variant.isActive,
+            sortOrder: variant.sortOrder,
+          }))
+          .sort(
+            (a, b) =>
+              a.sortOrder - b.sortOrder ||
+              (a.sku ?? '').localeCompare(b.sku ?? '') ||
+              a.name.localeCompare(b.name),
+          );
+
+        return (
+          existingVariants.length === expectedVariants.length &&
+          existingVariants.every((variant, index) => {
+            const expected = expectedVariants[index];
+
+            return (
+              variant.name === expected.name &&
+              variant.sku === expected.sku &&
+              variant.barcode === expected.barcode &&
+              variant.manufacturerCode === expected.manufacturerCode &&
+              variant.price === expected.price &&
+              variant.stockQuantity === expected.stockQuantity &&
+              variant.isActive === expected.isActive &&
+              variant.sortOrder === expected.sortOrder
+            );
+          })
+        );
+      })();
+
+    const attributeValuesMatch =
+      !normalized.attributeValuesProvided ||
+      (() => {
+        const existingValues = product.attributeValues
+          .map((value) => ({
+            attributeId: value.attributeId,
+            textValue: value.textValue ?? null,
+            numberValue:
+              value.numberValue === null ? null : Number(value.numberValue),
+            booleanValue: value.booleanValue,
+            optionCodes: [...value.optionCodes].sort(),
+          }))
+          .sort((a, b) => a.attributeId.localeCompare(b.attributeId));
+
+        const expectedValues = normalized.attributeValues
+          .map((value) => ({
+            attributeId: value.attributeId,
+            textValue: value.textValue ?? null,
+            numberValue: value.numberValue ?? null,
+            booleanValue: value.booleanValue ?? null,
+            optionCodes: [...value.optionCodes].sort(),
+          }))
+          .sort((a, b) => a.attributeId.localeCompare(b.attributeId));
+
+        return (
+          existingValues.length === expectedValues.length &&
+          existingValues.every((value, index) => {
+            const expected = expectedValues[index];
+
+            return (
+              value.attributeId === expected.attributeId &&
+              value.textValue === expected.textValue &&
+              value.numberValue === expected.numberValue &&
+              value.booleanValue === expected.booleanValue &&
+              value.optionCodes.length === expected.optionCodes.length &&
+              value.optionCodes.every(
+                (code, optionIndex) =>
+                  code === expected.optionCodes[optionIndex],
+              )
+            );
+          })
+        );
+      })();
+
     return (
       (product.sku ?? '') === normalized.sku &&
+      (product.brand?.name ?? '').trim().toLocaleLowerCase('tr-TR') ===
+          (normalized.brand ?? '').trim().toLocaleLowerCase('tr-TR') &&
+      this.sameNullableText(product.barcode, normalized.barcode) &&
+      this.sameNullableText(
+        product.manufacturerCode,
+        normalized.manufacturerCode,
+      ) &&
       product.categoryId === normalized.categoryId &&
       product.title === normalized.title &&
       this.sameNullableText(product.description, normalized.description) &&
@@ -1565,7 +2481,9 @@ export class ProductImportService {
       product.vatRate === normalized.vatRate &&
       (!normalized.imageUrlsProvided ||
         (product.imageUrl ?? null) === (expectedImages[0] ?? null)) &&
-      imagesMatch
+      imagesMatch &&
+      variantsMatch &&
+      attributeValuesMatch
     );
   }
 
@@ -1577,6 +2495,10 @@ export class ProductImportService {
       normalized: NormalizedProductRow;
       errors: string[];
     }>,
+    requiredAttributesByCategory: Map<
+      string,
+      Array<{ id: string; name: string }>
+    >,
   ): Promise<
     Array<{
       rowNumber: number;
@@ -1630,6 +2552,13 @@ export class ProductImportService {
             select: {
               id: true,
               sku: true,
+              brand: {
+                select: {
+                  name: true,
+                },
+              },
+              barcode: true,
+              manufacturerCode: true,
               categoryId: true,
               title: true,
               description: true,
@@ -1652,6 +2581,28 @@ export class ProductImportService {
                   isCover: true,
                 },
                 orderBy: { sortOrder: 'asc' },
+              },
+              variants: {
+                select: {
+                  name: true,
+                  sku: true,
+                  barcode: true,
+                  manufacturerCode: true,
+                  price: true,
+                  stockQuantity: true,
+                  isActive: true,
+                  sortOrder: true,
+                },
+                orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+              },
+              attributeValues: {
+                select: {
+                  attributeId: true,
+                  textValue: true,
+                  numberValue: true,
+                  booleanValue: true,
+                  optionCodes: true,
+                },
               },
             },
           });
@@ -1696,6 +2647,32 @@ export class ProductImportService {
 
       const existing = byId ?? bySku;
 
+      if (
+        (!existing || existing.categoryId !== row.normalized.categoryId) &&
+        row.normalized.categoryId
+      ) {
+        const requiredAttributes =
+          requiredAttributesByCategory.get(row.normalized.categoryId) ?? [];
+
+        if (requiredAttributes.length > 0) {
+          const providedAttributeIds = new Set(
+            row.normalized.attributeValues.map((value) => value.attributeId),
+          );
+
+          const missingRequired = requiredAttributes.filter(
+            (attribute) => !providedAttributeIds.has(attribute.id),
+          );
+
+          if (missingRequired.length > 0) {
+            errors.push(
+              `Zorunlu özellikler eksik: ${missingRequired
+                .map((attribute) => attribute.name)
+                .join(', ')}`,
+            );
+          }
+        }
+      }
+
       let action: ProductImportRowAction;
 
       if (errors.length > 0) {
@@ -1723,6 +2700,25 @@ export class ProductImportService {
     });
   }
 
+  private getRelatedHeaderMap<T extends string>(
+    worksheet: ExcelJS.Worksheet,
+    aliases: Record<string, T>,
+  ): Map<number, T> {
+    const headerRow = worksheet.getRow(1);
+    const result = new Map<number, T>();
+
+    headerRow.eachCell((cell, columnNumber) => {
+      const normalized = this.normalizeHeader(cell.text);
+      const field = aliases[normalized];
+
+      if (field) {
+        result.set(columnNumber, field);
+      }
+    });
+
+    return result;
+  }
+
   private readExcelRows(
     worksheet: ExcelJS.Worksheet,
     headerMap: Map<number, keyof NormalizedProductRow>,
@@ -1732,6 +2728,47 @@ export class ProductImportService {
     for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber += 1) {
       const row = worksheet.getRow(rowNumber);
       const raw: Record<string, unknown> = {};
+      let hasValue = false;
+
+      for (const [columnNumber, field] of headerMap.entries()) {
+        const cell = row.getCell(columnNumber);
+
+        if (
+          cell.value &&
+          typeof cell.value === 'object' &&
+          'formula' in cell.value
+        ) {
+          raw[field] = '__FORMULA_NOT_ALLOWED__';
+          hasValue = true;
+          continue;
+        }
+
+        const value = cell.text.trim();
+
+        if (value !== '') {
+          hasValue = true;
+        }
+
+        raw[field] = value;
+      }
+
+      if (hasValue) {
+        rows.push({ rowNumber, raw });
+      }
+    }
+
+    return rows;
+  }
+
+  private readRelatedExcelRows<T extends string>(
+    worksheet: ExcelJS.Worksheet,
+    headerMap: Map<number, T>,
+  ): Array<{ rowNumber: number; raw: Record<T, unknown> }> {
+    const rows: Array<{ rowNumber: number; raw: Record<T, unknown> }> = [];
+
+    for (let rowNumber = 2; rowNumber <= worksheet.rowCount; rowNumber += 1) {
+      const row = worksheet.getRow(rowNumber);
+      const raw = {} as Record<T, unknown>;
       let hasValue = false;
 
       for (const [columnNumber, field] of headerMap.entries()) {
@@ -1853,6 +2890,9 @@ export class ProductImportService {
       normalized: {
         productId: this.nullableText(raw.productId),
         sku,
+        brand: this.nullableText(raw.brand),
+        barcode: this.nullableText(raw.barcode),
+        manufacturerCode: this.nullableText(raw.manufacturerCode),
         title,
         description: this.nullableText(raw.description),
         categoryId,
@@ -1870,9 +2910,209 @@ export class ProductImportService {
         vatRate,
         imageUrlsProvided,
         imageUrls,
+        variantsProvided: false,
+        variants: [],
+        attributeValuesProvided: false,
+        attributeValues: [],
       },
       errors,
     };
+  }
+
+  private normalizeImportedVariant(
+    raw: Record<VariantExcelField, unknown>,
+  ): { variant: RawImportVariant | null; errors: string[] } {
+    const errors: string[] = [];
+
+    for (const [field, value] of Object.entries(raw)) {
+      if (value === '__FORMULA_NOT_ALLOWED__') {
+        errors.push(`${field} alanında Excel formülü kullanılamaz`);
+      }
+    }
+
+    const parentSku = this.text(raw.parentSku).toUpperCase();
+    const name = this.text(raw.name);
+    const sku = this.nullableText(raw.sku)?.toUpperCase() ?? null;
+    const barcode = this.nullableText(raw.barcode);
+    const manufacturerCode = this.nullableText(raw.manufacturerCode);
+
+    const price =
+      this.text(raw.price) === '' ? null : this.decimal(raw.price);
+    const stockQuantity =
+      this.text(raw.stockQuantity) === ''
+        ? null
+        : this.integer(raw.stockQuantity);
+    const sortOrder =
+      this.text(raw.sortOrder) === '' ? 0 : this.integer(raw.sortOrder);
+
+    const activeText = this.text(raw.isActive);
+    const parsedActive =
+      activeText === '' ? true : this.parseImportBoolean(raw.isActive);
+
+    if (!parentSku) errors.push('Ana Ürün SKU zorunludur');
+    if (!name) errors.push('Varyant adı zorunludur');
+
+    if (price !== null && price < 0) {
+      errors.push('Varyant fiyatı negatif olamaz');
+    } else if (this.text(raw.price) !== '' && price === null) {
+      errors.push('Varyant fiyatı geçerli bir sayı olmalıdır');
+    }
+
+    if (stockQuantity !== null && stockQuantity < 0) {
+      errors.push('Varyant stok miktarı negatif olamaz');
+    } else if (
+      this.text(raw.stockQuantity) !== '' &&
+      stockQuantity === null
+    ) {
+      errors.push('Varyant stok miktarı geçerli bir tam sayı olmalıdır');
+    }
+
+    if (sortOrder === null || sortOrder < 0) {
+      errors.push('Varyant sıra değeri 0 veya daha büyük tam sayı olmalıdır');
+    }
+
+    if (parsedActive === null) {
+      errors.push('Varyant Aktif alanı Evet/Hayır veya true/false olmalıdır');
+    }
+
+    if (errors.length > 0) {
+      return { variant: null, errors };
+    }
+
+    return {
+      variant: {
+        parentSku,
+        name,
+        sku,
+        barcode,
+        manufacturerCode,
+        price,
+        stockQuantity,
+        isActive: parsedActive ?? true,
+        sortOrder: sortOrder ?? 0,
+      },
+      errors,
+    };
+  }
+
+  private normalizeImportedAttributeValue(
+    attributeId: string,
+    type: ProductAttributeType,
+    rawValue: unknown,
+  ): { value: ProductAttributeValueDto | null; errors: string[] } {
+    const errors: string[] = [];
+
+    if (rawValue === '__FORMULA_NOT_ALLOWED__') {
+      return {
+        value: null,
+        errors: ['Değer alanında Excel formülü kullanılamaz'],
+      };
+    }
+
+    const textValue = this.text(rawValue);
+
+    if (!textValue) {
+      return {
+        value: null,
+        errors: ['Özellik değeri zorunludur'],
+      };
+    }
+
+    if (type === ProductAttributeType.TEXT) {
+      return {
+        value: {
+          attributeId,
+          textValue,
+        },
+        errors,
+      };
+    }
+
+    if (type === ProductAttributeType.NUMBER) {
+      const numberValue = this.decimal(rawValue);
+
+      if (numberValue === null) {
+        return {
+          value: null,
+          errors: ['Özellik değeri geçerli bir sayı olmalıdır'],
+        };
+      }
+
+      return {
+        value: {
+          attributeId,
+          numberValue,
+        },
+        errors,
+      };
+    }
+
+    if (type === ProductAttributeType.BOOLEAN) {
+      const booleanValue = this.parseImportBoolean(rawValue);
+
+      if (booleanValue === null) {
+        return {
+          value: null,
+          errors: ['Özellik değeri Evet/Hayır veya true/false olmalıdır'],
+        };
+      }
+
+      return {
+        value: {
+          attributeId,
+          booleanValue,
+        },
+        errors,
+      };
+    }
+
+    const optionCodes = [
+      ...new Set(
+        textValue
+          .split('|')
+          .map((code) => code.trim())
+          .filter(Boolean),
+      ),
+    ];
+
+    if (type === ProductAttributeType.SELECT && optionCodes.length !== 1) {
+      return {
+        value: null,
+        errors: ['Tek seçimli özellik için tam bir seçenek kodu girilmelidir'],
+      };
+    }
+
+    if (
+      type === ProductAttributeType.MULTI_SELECT &&
+      optionCodes.length === 0
+    ) {
+      return {
+        value: null,
+        errors: ['Çok seçimli özellik için en az bir seçenek kodu girilmelidir'],
+      };
+    }
+
+    return {
+      value: {
+        attributeId,
+        optionCodes,
+      },
+      errors,
+    };
+  }
+
+  private parseImportBoolean(value: unknown): boolean | null {
+    const normalized = this.normalizeHeader(value);
+
+    if (['evet', 'true', '1'].includes(normalized)) {
+      return true;
+    }
+
+    if (['hayir', 'false', '0'].includes(normalized)) {
+      return false;
+    }
+
+    return null;
   }
 
   private normalizeHeader(value: unknown): string {

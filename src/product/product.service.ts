@@ -5,20 +5,26 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma.service';
-import { CompanyStatus, Role } from '@prisma/client';
-import { CreateProductDto } from './dto/create-product.dto';
+import { CompanyStatus, Prisma, ProductAttributeType, Role } from '@prisma/client';
+import {
+  CreateProductDto,
+  ProductAttributeValueDto,
+  ProductVariantDto,
+} from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import {
   normalizeProductLanguage,
   SUPPORTED_PRODUCT_LANGUAGES,
 } from './product-language';
 import { AiService } from '../ai/ai.service';
+import { ProductCatalogService } from './product-catalog.service';
 
 @Injectable()
 export class ProductService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly aiService: AiService,
+    private readonly catalogService: ProductCatalogService,
   ) {}
 
   private async requireVerifiedSellerCompany(user: any) {
@@ -199,8 +205,13 @@ export class ProductService {
         imageUrl: true,
         country: true,
         city: true,
+        sku: true,
+        brandId: true,
+        barcode: true,
+        manufacturerCode: true,
         unitType: true,
         moq: true,
+        quantityStep: true,
         basePrice: true,
         leadTimeDays: true,
         stockType: true,
@@ -221,6 +232,13 @@ export class ProductService {
               where: { language },
               take: 1,
             },
+          },
+        },
+        brand: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
           },
         },
         images: {
@@ -263,8 +281,13 @@ export class ProductService {
         imageUrl: true,
         country: true,
         city: true,
+        sku: true,
+        brandId: true,
+        barcode: true,
+        manufacturerCode: true,
         unitType: true,
         moq: true,
+        quantityStep: true,
         basePrice: true,
         leadTimeDays: true,
         stockType: true,
@@ -285,6 +308,13 @@ export class ProductService {
               where: { language },
               take: 1,
             },
+          },
+        },
+        brand: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
           },
         },
         images: {
@@ -308,6 +338,22 @@ export class ProductService {
       },
       include: {
         category: true,
+        brand: true,
+        variants: {
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        },
+        attributeValues: {
+          include: {
+            attribute: {
+              include: {
+                options: {
+                  where: { isActive: true },
+                  orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+                },
+              },
+            },
+          },
+        },
         images: {
           orderBy: { sortOrder: 'asc' },
         },
@@ -337,6 +383,22 @@ export class ProductService {
       },
       include: {
         category: true,
+        brand: true,
+        variants: {
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        },
+        attributeValues: {
+          include: {
+            attribute: {
+              include: {
+                options: {
+                  where: { isActive: true },
+                  orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+                },
+              },
+            },
+          },
+        },
         seller: {
           select: {
             id: true,
@@ -372,8 +434,13 @@ export class ProductService {
         imageUrl: true,
         country: true,
         city: true,
+        sku: true,
+        brandId: true,
+        barcode: true,
+        manufacturerCode: true,
         unitType: true,
         moq: true,
+        quantityStep: true,
         basePrice: true,
         leadTimeDays: true,
         stockType: true,
@@ -393,6 +460,39 @@ export class ProductService {
             translations: {
               where: { language },
               take: 1,
+            },
+          },
+        },
+        brand: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+          },
+        },
+        variants: {
+          where: { isActive: true },
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        },
+        attributeValues: {
+          include: {
+            attribute: {
+              include: {
+                translations: {
+                  where: { language },
+                  take: 1,
+                },
+                options: {
+                  where: { isActive: true },
+                  include: {
+                    translations: {
+                      where: { language },
+                      take: 1,
+                    },
+                  },
+                  orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+                },
+              },
             },
           },
         },
@@ -503,50 +603,86 @@ export class ProductService {
   async create(user: any, body: CreateProductDto) {
     await this.requireVerifiedSellerCompany(user);
 
-    const product = await this.prisma.product.create({
-      data: {
-        sellerId: user.companyId,
-        categoryId: body.categoryId || null,
-        title: body.title,
-        description: body.description || null,
-        sourceLanguage: normalizeProductLanguage(body.sourceLanguage),
-        imageUrl: body.imageUrl || null,
-        country: body.country || null,
-        city: body.city || null,
-        sku: body.sku?.trim().toUpperCase() || null,
-        unitType: body.unitType,
-        moq: body.moq,
-        quantityStep: body.quantityStep ?? 1,
-        basePrice: body.basePrice,
-        leadTimeDays: body.leadTimeDays || null,
-        stockType: body.stockType || null,
-        stockQuantity:
-          body.stockQuantity !== undefined && body.stockQuantity !== null
-            ? Number(body.stockQuantity)
-            : null,
-        vatRate: body.vatRate ?? null,
-        rfqEnabled: body.rfqEnabled ?? true,
-        isActive: true,
-        isApproved: true,
-      },
-      include: {
-        category: true,
-        images: {
-          orderBy: { sortOrder: 'asc' },
-        },
-        seller: {
-          select: {
-            id: true,
-            name: true,
-            verified: true,
-            status: true,
-            rating: true,
-            reviewCount: true,
-            city: true,
-            responseTime: true,
+    const product = await this.prisma.$transaction(async (tx) => {
+      const brandId = await this.catalogService.validateBrand(tx, body.brandId);
+      const attributeValues = await this.catalogService.validateAttributeValues(
+        tx,
+        body.categoryId || null,
+        body.attributeValues ?? [],
+        true,
+      );
+      const variants = this.catalogService.normalizeVariants(body.variants ?? []);
+
+      return tx.product.create({
+        data: {
+          sellerId: user.companyId,
+          categoryId: body.categoryId || null,
+          title: body.title,
+          description: body.description || null,
+          sourceLanguage: normalizeProductLanguage(body.sourceLanguage),
+          imageUrl: body.imageUrl || null,
+          country: body.country || null,
+          city: body.city || null,
+          sku: body.sku?.trim().toUpperCase() || null,
+          brandId,
+          barcode: body.barcode?.trim() || null,
+          manufacturerCode: body.manufacturerCode?.trim() || null,
+          unitType: body.unitType,
+          moq: body.moq,
+          quantityStep: body.quantityStep ?? 1,
+          basePrice: body.basePrice,
+          leadTimeDays: body.leadTimeDays || null,
+          stockType: body.stockType || null,
+          stockQuantity:
+            body.stockQuantity !== undefined && body.stockQuantity !== null
+              ? Number(body.stockQuantity)
+              : null,
+          vatRate: body.vatRate ?? null,
+          rfqEnabled: body.rfqEnabled ?? true,
+          isActive: true,
+          isApproved: true,
+          variants: {
+            create: variants,
+          },
+          attributeValues: {
+            create: attributeValues,
           },
         },
-      },
+        include: {
+          category: true,
+          brand: true,
+          variants: {
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+          },
+          attributeValues: {
+            include: {
+              attribute: {
+                include: {
+                  options: {
+                    where: { isActive: true },
+                    orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+                  },
+                },
+              },
+            },
+          },
+          images: {
+            orderBy: { sortOrder: 'asc' },
+          },
+          seller: {
+            select: {
+              id: true,
+              name: true,
+              verified: true,
+              status: true,
+              rating: true,
+              reviewCount: true,
+              city: true,
+              responseTime: true,
+            },
+          },
+        },
+      });
     });
 
     await this.generateProductTranslations({
@@ -731,68 +867,159 @@ export class ProductService {
     const contentChanged =
       body.title !== undefined || body.description !== undefined;
 
-    const updatedProduct = await this.prisma.product.update({
-      where: { id },
-      data: {
-        ...(body.categoryId !== undefined
-          ? { categoryId: body.categoryId || null }
-          : {}),
-        ...(body.title !== undefined ? { title: body.title } : {}),
-        ...(body.description !== undefined
-          ? { description: body.description || null }
-          : {}),
-        ...(body.imageUrl !== undefined
-          ? { imageUrl: body.imageUrl || null }
-          : {}),
-        ...(body.sku !== undefined
-          ? { sku: body.sku?.trim().toUpperCase() || null }
-          : {}),
-        ...(body.unitType !== undefined ? { unitType: body.unitType } : {}),
-        ...(body.moq !== undefined ? { moq: body.moq } : {}),
-        ...(body.quantityStep !== undefined
-          ? { quantityStep: body.quantityStep }
-          : {}),
-        ...(body.basePrice !== undefined ? { basePrice: body.basePrice } : {}),
-        ...(body.leadTimeDays !== undefined
-          ? { leadTimeDays: body.leadTimeDays || null }
-          : {}),
-        ...(body.stockType !== undefined
-          ? { stockType: body.stockType || null }
-          : {}),
-        ...(body.stockQuantity !== undefined
-          ? {
-              stockQuantity:
-                body.stockQuantity === null
-                  ? null
-                  : Number(body.stockQuantity),
-            }
-          : {}),
-        ...(body.vatRate !== undefined
-          ? { vatRate: body.vatRate ?? null }
-          : {}),
-        ...(body.rfqEnabled !== undefined
-          ? { rfqEnabled: body.rfqEnabled }
-          : {}),
-        ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
-      },
-      include: {
-        category: true,
-        images: {
-          orderBy: { sortOrder: 'asc' },
+    const updatedProduct = await this.prisma.$transaction(async (tx) => {
+      const effectiveCategoryId =
+        body.categoryId !== undefined
+          ? body.categoryId || null
+          : product.categoryId;
+
+      const categoryChanged =
+        body.categoryId !== undefined &&
+        effectiveCategoryId !== product.categoryId;
+
+      let brandId: string | null | undefined;
+      if (body.brandId !== undefined) {
+        brandId = await this.catalogService.validateBrand(tx, body.brandId || null);
+      }
+
+      let attributeValues:
+        | Awaited<ReturnType<ProductCatalogService['validateAttributeValues']>>
+        | undefined;
+
+      if (body.attributeValues !== undefined || categoryChanged) {
+        attributeValues = await this.catalogService.validateAttributeValues(
+          tx,
+          effectiveCategoryId,
+          body.attributeValues ?? [],
+          true,
+        );
+      }
+
+      const variants =
+        body.variants !== undefined
+          ? this.catalogService.normalizeVariants(body.variants)
+          : undefined;
+
+      await tx.product.update({
+        where: { id },
+        data: {
+          ...(body.categoryId !== undefined
+            ? { categoryId: effectiveCategoryId }
+            : {}),
+          ...(body.title !== undefined ? { title: body.title } : {}),
+          ...(body.description !== undefined
+            ? { description: body.description || null }
+            : {}),
+          ...(body.imageUrl !== undefined
+            ? { imageUrl: body.imageUrl || null }
+            : {}),
+          ...(body.sku !== undefined
+            ? { sku: body.sku?.trim().toUpperCase() || null }
+            : {}),
+          ...(body.brandId !== undefined ? { brandId: brandId ?? null } : {}),
+          ...(body.barcode !== undefined
+            ? { barcode: body.barcode?.trim() || null }
+            : {}),
+          ...(body.manufacturerCode !== undefined
+            ? { manufacturerCode: body.manufacturerCode?.trim() || null }
+            : {}),
+          ...(body.unitType !== undefined ? { unitType: body.unitType } : {}),
+          ...(body.moq !== undefined ? { moq: body.moq } : {}),
+          ...(body.quantityStep !== undefined
+            ? { quantityStep: body.quantityStep }
+            : {}),
+          ...(body.basePrice !== undefined ? { basePrice: body.basePrice } : {}),
+          ...(body.leadTimeDays !== undefined
+            ? { leadTimeDays: body.leadTimeDays || null }
+            : {}),
+          ...(body.stockType !== undefined
+            ? { stockType: body.stockType || null }
+            : {}),
+          ...(body.stockQuantity !== undefined
+            ? {
+                stockQuantity:
+                  body.stockQuantity === null
+                    ? null
+                    : Number(body.stockQuantity),
+              }
+            : {}),
+          ...(body.vatRate !== undefined
+            ? { vatRate: body.vatRate ?? null }
+            : {}),
+          ...(body.rfqEnabled !== undefined
+            ? { rfqEnabled: body.rfqEnabled }
+            : {}),
+          ...(body.isActive !== undefined ? { isActive: body.isActive } : {}),
         },
-        seller: {
-          select: {
-            id: true,
-            name: true,
-            verified: true,
-            status: true,
-            rating: true,
-            reviewCount: true,
-            city: true,
-            responseTime: true,
+      });
+
+      if (attributeValues !== undefined) {
+        await tx.productAttributeValue.deleteMany({
+          where: { productId: id },
+        });
+
+        if (attributeValues.length > 0) {
+          await tx.productAttributeValue.createMany({
+            data: attributeValues.map((value) => ({
+              productId: id,
+              ...value,
+            })),
+          });
+        }
+      }
+
+      if (variants !== undefined) {
+        await tx.productVariant.deleteMany({
+          where: { productId: id },
+        });
+
+        if (variants.length > 0) {
+          await tx.productVariant.createMany({
+            data: variants.map((variant) => ({
+              productId: id,
+              ...variant,
+            })),
+          });
+        }
+      }
+
+      return tx.product.findUniqueOrThrow({
+        where: { id },
+        include: {
+          category: true,
+          brand: true,
+          variants: {
+            orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+          },
+          attributeValues: {
+            include: {
+              attribute: {
+                include: {
+                  options: {
+                    where: { isActive: true },
+                    orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+                  },
+                },
+              },
+            },
+          },
+          images: {
+            orderBy: { sortOrder: 'asc' },
+          },
+          seller: {
+            select: {
+              id: true,
+              name: true,
+              verified: true,
+              status: true,
+              rating: true,
+              reviewCount: true,
+              city: true,
+              responseTime: true,
+            },
           },
         },
-      },
+      });
     });
 
     if (contentChanged) {

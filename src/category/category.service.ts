@@ -37,6 +37,54 @@ export class CategoryService {
     }));
   }
 
+  async attributes(categoryId: string, lang?: string) {
+    const language = normalizeProductLanguage(lang);
+
+    const category = await this.prisma.category.findUnique({
+      where: { id: categoryId },
+      select: { id: true },
+    });
+
+    if (!category) {
+      return null;
+    }
+
+    const attributes = await this.prisma.categoryAttribute.findMany({
+      where: {
+        categoryId,
+        isActive: true,
+      },
+      include: {
+        translations: {
+          where: { language },
+          take: 1,
+        },
+        options: {
+          where: { isActive: true },
+          include: {
+            translations: {
+              where: { language },
+              take: 1,
+            },
+          },
+          orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+        },
+      },
+      orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+    });
+
+    return attributes.map(({ translations, options, ...attribute }) => ({
+      ...attribute,
+      name: translations[0]?.name || attribute.name,
+      options: options.map(
+        ({ translations: optionTranslations, ...option }) => ({
+          ...option,
+          name: optionTranslations[0]?.name || option.name,
+        }),
+      ),
+    }));
+  }
+
   async tree(rootId?: string, lang?: string) {
     const language = normalizeProductLanguage(lang);
 
