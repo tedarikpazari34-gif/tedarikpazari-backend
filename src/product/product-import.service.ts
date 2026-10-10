@@ -18,6 +18,7 @@ import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma.service';
 import { ProductCatalogService } from './product-catalog.service';
+import { ProductRevisionService } from './product-revision.service';
 import {
   ProductAttributeValueDto,
   ProductVariantDto,
@@ -126,6 +127,7 @@ export class ProductImportService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly catalogService: ProductCatalogService,
+    private readonly revisionService: ProductRevisionService,
   ) {}
 
   private async requireVerifiedSellerCompany(user: ImportUser) {
@@ -310,11 +312,18 @@ export class ProductImportService {
     value: 'value',
   };
 
-  private parseImageUrls(value: unknown): string[] {
+  private parseImageUrls(value: unknown): {
+    urls: string[];
+    hasInvalid: boolean;
+  } {
     const raw = this.text(value);
-    if (!raw) return [];
+
+    if (!raw) {
+      return { urls: [], hasInvalid: false };
+    }
 
     const unique = new Set<string>();
+    let hasInvalid = false;
 
     for (const part of raw.split(/[|;\n\r]+/)) {
       const candidate = part.trim();
@@ -322,16 +331,22 @@ export class ProductImportService {
 
       try {
         const url = new URL(candidate);
+
         if (url.protocol !== 'https:') {
+          hasInvalid = true;
           continue;
         }
+
         unique.add(url.toString());
       } catch {
-        continue;
+        hasInvalid = true;
       }
     }
 
-    return [...unique];
+    return {
+      urls: [...unique],
+      hasInvalid,
+    };
   }
 
   private normalizeCategoryName(value: string): string {
@@ -1101,6 +1116,202 @@ export class ProductImportService {
         );
       }
 
+      // Onaylı ürünlerde toplu içe aktarma ile moderasyon atlanamaz.
+      if (existing) {
+        const approval = await tx.product.findUnique({
+          where: { id: existing.id },
+          select: { isApproved: true },
+        });
+
+        if (approval?.isApproved) {
+          const current = await tx.product.findUniqueOrThrow({
+            where: { id: existing.id },
+            select: {
+              sku: true,
+              brandId: true,
+              barcode: true,
+              manufacturerCode: true,
+              categoryId: true,
+              title: true,
+              description: true,
+              sourceLanguage: true,
+              country: true,
+              city: true,
+              unitType: true,
+              moq: true,
+              quantityStep: true,
+              leadTimeDays: true,
+              stockType: true,
+              vatRate: true,
+              imageUrl: true,
+              images: {
+                select: { url: true, sortOrder: true },
+                orderBy: { sortOrder: 'asc' },
+              },
+              attributeValues: {
+                select: {
+                  attributeId: true,
+                  textValue: true,
+                  numberValue: true,
+                  booleanValue: true,
+                  optionCodes: true,
+                },
+              },
+            },
+          });
+
+          const incomingBrandId =
+            await this.catalogService.resolveBrandByName(
+              tx,
+              normalized.brand,
+            );
+
+          // Varyant kimlikleri güvenle eşleştirilmeden güncellenemez.
+          if (normalized.variantsProvided) {
+            throw new BadRequestException(
+              'Onaylı ürünlerde varyant içeren Excel/XML güncellemesi henüz desteklenmiyor',
+            );
+          }
+
+          const proposedData: Record<string, unknown> = {};
+          const contentFields = [
+            'sku', 'barcode', 'manufacturerCode', 'categoryId',
+            'title', 'description', 'sourceLanguage', 'country',
+            'city', 'unitType', 'moq', 'quantityStep',
+            'leadTimeDays', 'stockType', 'vatRate',
+          ] as const;
+
+          for (const field of contentFields) {
+            if (current[field] !== normalized[field]) {
+              proposedData[field] = normalized[field];
+            }
+          }
+
+          if (current.brandId !== incomingBrandId) {
+            proposedData.brandId = incomingBrandId;
+          }
+
+          if (normalized.imageUrlsProvided) {
+            const currentImageUrls = current.images.map((image) => image.url);
+            const incomingImageUrls = normalized.imageUrls;
+            const imagesUnchanged =
+              currentImageUrls.length === incomingImageUrls.length &&
+              currentImageUrls.every(
+                (url, index) => url === incomingImageUrls[index],
+              ) &&
+              current.imageUrl === (incomingImageUrls[0] ?? null);
+
+            if (!imagesUnchanged) {
+              proposedData.images = incomingImageUrls.map((url, index) => ({
+                url,
+                isCover: index === 0,
+              }));
+              proposedData.imageUrl = incomingImageUrls[0] ?? null;
+            }
+          }
+
+          if (normalized.attributeValuesProvided) {
+            const canonicalAttributes = (
+              values: Array<{
+                attributeId: string;
+                textValue: string | null;
+                numberValue: number | Prisma.Decimal | null;
+                booleanValue: boolean | null;
+                optionCodes: string[];
+              }>,
+            ) =>
+              JSON.stringify(
+                values
+                  .map((value) => ({
+                    attributeId: value.attributeId,
+                    textValue: value.textValue ?? null,
+                    numberValue:
+                      value.numberValue === null
+                        ? null
+                        : Number(value.numberValue),
+                    booleanValue: value.booleanValue ?? null,
+                    optionCodes: [...value.optionCodes].sort(),
+                  }))
+                  .sort((a, b) =>
+                    a.attributeId.localeCompare(b.attributeId),
+                  ),
+              );
+
+            if (
+              current.categoryId !== normalized.categoryId ||
+              canonicalAttributes(current.attributeValues) !==
+                canonicalAttributes(normalized.attributeValues)
+            ) {
+              proposedData.attributeValues = normalized.attributeValues.map(
+                (value) => ({
+                  attributeId: value.attributeId,
+                  ...(value.textValue !== null
+                    ? { textValue: value.textValue }
+                    : {}),
+                  ...(value.numberValue !== null
+                    ? { numberValue: value.numberValue }
+                    : {}),
+                  ...(value.booleanValue !== null
+                    ? { booleanValue: value.booleanValue }
+                    : {}),
+                  optionCodes: value.optionCodes,
+                }),
+              );
+            }
+          }
+
+          if (Object.keys(proposedData).length > 0) {
+            const pendingRevision = await tx.productRevision.findFirst({
+              where: { productId: existing.id, status: 'PENDING' },
+              select: { proposedData: true },
+            });
+
+            const pendingData = pendingRevision?.proposedData;
+
+            if (
+              pendingData &&
+              typeof pendingData === 'object' &&
+              !Array.isArray(pendingData) &&
+              Object.prototype.hasOwnProperty.call(
+                pendingData,
+                'categoryId',
+              )
+            ) {
+              throw new BadRequestException(
+                'Ürünün kategori değişikliği onay bekliyor. Excel/XML içerik güncellemesi için önce bu revizyon sonuçlanmalıdır.',
+              );
+            }
+
+            await this.revisionService.savePendingRevision(
+              sellerId,
+              existing.id,
+              proposedData,
+              { tx, rejectPendingConflicts: true },
+            );
+          }
+
+          await tx.product.update({
+            where: { id: existing.id },
+            data: {
+              basePrice: normalized.basePrice,
+              stockQuantity: normalized.stockQuantity,
+            },
+          });
+
+          await tx.productImportRow.update({
+            where: { id: row.id },
+            data: {
+              productId: existing.id,
+              processedAt: new Date(),
+              processingToken: null,
+              processingStartedAt: null,
+            },
+          });
+
+          return;
+        }
+      }
+
       const brandId = await this.catalogService.resolveBrandByName(
         tx,
         normalized.brand,
@@ -1168,7 +1379,7 @@ export class ProductImportService {
             vatRate: normalized.vatRate,
             rfqEnabled: false,
             isActive: true,
-            isApproved: true,
+            isApproved: false,
           },
           select: { id: true },
         });
@@ -2883,8 +3094,15 @@ export class ProductImportService {
       }
     }
 
-    const imageUrls = this.parseImageUrls(raw.imageUrls);
-    const imageUrlsProvided = imageUrls.length > 0;
+    const parsedImageUrls = this.parseImageUrls(raw.imageUrls);
+    const imageUrls = parsedImageUrls.urls;
+    const imageUrlsProvided = this.text(raw.imageUrls) !== '';
+
+    if (parsedImageUrls.hasInvalid) {
+      errors.push(
+        'Görsel URL alanında yalnızca geçerli HTTPS adresleri kullanılabilir',
+      );
+    }
 
     return {
       normalized: {

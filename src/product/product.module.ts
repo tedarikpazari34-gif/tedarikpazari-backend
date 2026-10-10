@@ -4,11 +4,13 @@ import { ProductController } from './product.controller';
 import { ProductService } from './product.service';
 import { ProductImportService } from './product-import.service';
 import { ProductCatalogService } from './product-catalog.service';
+import { ProductRevisionService } from './product-revision.service';
 import { AiModule } from '../ai/ai.module';
 
 @Module({
   imports: [AiModule],
   controllers: [ProductController],
-  providers: [ProductService, ProductImportService, ProductCatalogService, PrismaService],
+  exports: [ProductRevisionService],
+  providers: [ProductService, ProductImportService, ProductCatalogService, ProductRevisionService, PrismaService],
 })
 export class ProductModule {}

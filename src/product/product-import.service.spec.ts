@@ -18,6 +18,9 @@ describe('ProductImportService XML import', () => {
     category: {
       findMany: jest.fn(),
     },
+    brand: {
+      findMany: jest.fn(),
+    },
     product: {
       findMany: jest.fn(),
     },
@@ -51,6 +54,7 @@ describe('ProductImportService XML import', () => {
       verified: true,
     });
     prisma.category.findMany.mockResolvedValue([]);
+    prisma.brand.findMany.mockResolvedValue([]);
     prisma.product.findMany.mockResolvedValue([]);
     prisma.productImportJob.create.mockResolvedValue({
       id: 'job-1',
@@ -69,7 +73,11 @@ describe('ProductImportService XML import', () => {
     prisma.productImportRow.createMany.mockResolvedValue({ count: 1 });
     prisma.productImportJob.update.mockResolvedValue({});
 
-    service = new ProductImportService(prisma as never);
+    service = new ProductImportService(
+      prisma as never,
+      {} as never,
+      {} as never,
+    );
   });
 
   it('canonical XML verisini ortak import job sistemine aktarır', async () => {
@@ -141,6 +149,43 @@ describe('ProductImportService XML import', () => {
           'https://example.com/a.jpg',
           'https://example.com/b.jpg',
         ],
+      }),
+    );
+  });
+
+  it('geçersiz veya HTTP görsel URL adresini sessizce yok saymaz', async () => {
+    const xml = `
+      <products>
+        <product>
+          <sku>IMG-001</sku>
+          <title>Görsel Test Ürün</title>
+          <unitType>Adet</unitType>
+          <basePrice>10</basePrice>
+          <moq>1</moq>
+          <quantityStep>1</quantityStep>
+          <imageUrls>http://example.com/a.jpg</imageUrls>
+        </product>
+      </products>
+    `;
+
+    await service.createXmlJob(user, file(xml));
+
+    const call = prisma.productImportRow.createMany.mock.calls[0][0];
+    expect(call.data[0]).toEqual(
+      expect.objectContaining({
+        sku: 'IMG-001',
+        action: ProductImportRowAction.ERROR,
+      }),
+    );
+    expect(call.data[0].errors).toEqual(
+      expect.arrayContaining([
+        'Görsel URL alanında yalnızca geçerli HTTPS adresleri kullanılabilir',
+      ]),
+    );
+    expect(call.data[0].normalized).toEqual(
+      expect.objectContaining({
+        imageUrlsProvided: true,
+        imageUrls: [],
       }),
     );
   });

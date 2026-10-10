@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ChatModule } from '../chat/chat.module';
+import { ProductModule } from '../product/product.module';
 
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
@@ -15,7 +16,7 @@ import { AdminControlCenterController } from './admin-control-center.controller'
 import { AdminControlCenterService } from './admin-control-center.service';
 
 @Module({
-  imports: [PrismaModule, ChatModule],
+  imports: [PrismaModule, ChatModule, ProductModule],
   controllers: [
     AdminController,
     AdminMetricsController,

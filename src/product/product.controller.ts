@@ -128,6 +128,16 @@ export class ProductController {
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
+  @Get(':id/revisions')
+  listMyProductRevisions(
+    @Req() req: any,
+    @Param('id') id: string,
+  ) {
+    return this.productService.listMyProductRevisions(req.user, id);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
   @Get('admin/pending')
   listPending(@Req() req: any) {
     return this.productService.listPending(req.user);

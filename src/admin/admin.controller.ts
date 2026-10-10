@@ -9,6 +9,8 @@ import {
   Body,
 } from '@nestjs/common';
 import { AdminService } from './admin.service';
+import { RejectProductRevisionDto } from './dto/reject-product-revision.dto';
+import { ProductRevisionService } from '../product/product-revision.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AdminGuard } from '../common/guards/admin.guard';
@@ -16,12 +18,39 @@ import { AdminGuard } from '../common/guards/admin.guard';
 @ApiBearerAuth()
 @Controller('admin')
 export class AdminController {
-  constructor(private adminService: AdminService) {}
+  constructor(
+    private adminService: AdminService,
+    private readonly productRevisionService: ProductRevisionService,
+  ) {}
 
   private checkAdmin(req: any) {
     if (req.user.role !== 'ADMIN') {
       throw new ForbiddenException('Sadece ADMIN işlem yapabilir');
     }
+  }
+
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Post('product-revisions/:id/reject')
+  @ApiOperation({ summary: 'Reject product revision (ADMIN)' })
+  rejectProductRevision(
+    @Req() req: any,
+    @Param('id') revisionId: string,
+    @Body() body: RejectProductRevisionDto,
+  ) {
+    this.checkAdmin(req);
+    return this.productRevisionService.rejectRevision(
+      req.user,
+      revisionId,
+      body?.reason,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard, AdminGuard)
+  @Get('product-revisions/pending')
+  @ApiOperation({ summary: 'List pending product revisions (ADMIN)' })
+  listPendingProductRevisions(@Req() req: any) {
+    this.checkAdmin(req);
+    return this.productRevisionService.listPendingRevisions(req.user);
   }
 
   @UseGuards(JwtAuthGuard, AdminGuard)

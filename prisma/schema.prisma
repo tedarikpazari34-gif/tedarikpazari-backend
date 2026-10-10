@@ -221,6 +221,7 @@ model Company {
 
   payoutRequests    PayoutRequest[]
   productImportJobs ProductImportJob[]
+  productRevisions  ProductRevision[]
 }
 
 model CompanyWallet {
@@ -254,6 +255,7 @@ model User {
   favorites         Favorite[]
   pushSubscriptions PushSubscription[]
   productReports    ProductReport[]
+  reviewedProductRevisions ProductRevision[] @relation("ProductRevisionReviewer")
 }
 
 model PushSubscription {
@@ -373,6 +375,35 @@ model ProductAttributeValue {
   @@index([attributeId])
 }
 
+
+enum ProductRevisionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUPERSEDED
+}
+
+model ProductRevision {
+  id              String                @id @default(cuid())
+  productId       String
+  sellerId        String
+  status          ProductRevisionStatus @default(PENDING)
+  proposedData    Json
+  reviewedById    String?
+  reviewedAt      DateTime?
+  rejectionReason String?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  product    Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  seller     Company @relation(fields: [sellerId], references: [id])
+  reviewedBy User?   @relation("ProductRevisionReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@index([productId, status])
+  @@index([sellerId, status])
+  @@index([status, createdAt])
+}
+
 model Brand {
   id        String   @id @default(cuid())
   name      String   @unique
@@ -432,6 +463,7 @@ model Product {
   translations    ProductTranslation[]
   variants        ProductVariant[]
   attributeValues ProductAttributeValue[]
+  revisions       ProductRevision[]
 
   @@unique([sellerId, sku])
   @@index([sellerId])

@@ -18,6 +18,7 @@ import {
 } from './product-language';
 import { AiService } from '../ai/ai.service';
 import { ProductCatalogService } from './product-catalog.service';
+import { ProductRevisionService } from './product-revision.service';
 
 @Injectable()
 export class ProductService {
@@ -25,6 +26,7 @@ export class ProductService {
     private readonly prisma: PrismaService,
     private readonly aiService: AiService,
     private readonly catalogService: ProductCatalogService,
+    private readonly revisionService: ProductRevisionService,
   ) {}
 
   private async requireVerifiedSellerCompany(user: any) {
@@ -372,6 +374,81 @@ export class ProductService {
     });
   }
 
+  async listMyProductRevisions(user: any, productId: string) {
+    if (user.role !== Role.SELLER || !user.companyId) {
+      throw new ForbiddenException(
+        'Revizyon geçmişini yalnızca satıcılar görüntüleyebilir',
+      );
+    }
+
+    const product = await this.prisma.product.findFirst({
+      where: {
+        id: productId,
+        sellerId: user.companyId,
+      },
+      select: { id: true },
+    });
+
+    if (!product) {
+      throw new NotFoundException('Ürün bulunamadı');
+    }
+
+    const revisions = await this.prisma.productRevision.findMany({
+      where: {
+        productId: product.id,
+        sellerId: user.companyId,
+      },
+      select: {
+        id: true,
+        status: true,
+        proposedData: true,
+        rejectionReason: true,
+        reviewedAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const brandIds = [...new Set(
+      revisions
+        .map((revision) => {
+          const data = revision.proposedData;
+          if (!data || typeof data !== 'object' || Array.isArray(data)) {
+            return null;
+          }
+          const brandId = (data as Record<string, unknown>).brandId;
+          return typeof brandId === 'string' ? brandId : null;
+        })
+        .filter((id): id is string => Boolean(id)),
+    )];
+
+    const brands = brandIds.length
+      ? await this.prisma.brand.findMany({
+          where: { id: { in: brandIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+
+    const brandNames = new Map(brands.map((brand) => [brand.id, brand.name]));
+
+    return revisions.map((revision) => {
+      const data = revision.proposedData;
+      const brandId =
+        data && typeof data === 'object' && !Array.isArray(data)
+          ? (data as Record<string, unknown>).brandId
+          : null;
+
+      return {
+        ...revision,
+        brandName:
+          typeof brandId === 'string'
+            ? brandNames.get(brandId) ?? null
+            : null,
+      };
+    });
+  }
+
   async listPending(user: any) {
     if (user.role !== Role.ADMIN) {
       throw new ForbiddenException('Sadece ADMIN bekleyen ürünleri görebilir');
@@ -640,7 +717,7 @@ export class ProductService {
           vatRate: body.vatRate ?? null,
           rfqEnabled: body.rfqEnabled ?? true,
           isActive: true,
-          isApproved: true,
+          isApproved: false,
           variants: {
             create: variants,
           },
@@ -714,6 +791,26 @@ export class ProductService {
 
     if (images.length === 0) {
       throw new BadRequestException('Eklenecek görsel bulunamadı');
+    }
+
+    if (product.isApproved) {
+      const revision = await this.revisionService.savePendingRevision(
+        user.companyId,
+        id,
+        {
+          images: images.map((img: any) => ({
+            url: img.url,
+            isCover: Boolean(img.isCover),
+          })),
+        },
+        { appendImages: true },
+      );
+
+      return {
+        message: 'Görsel ekleme işlemi yönetici onayına gönderildi',
+        revisionId: revision.id,
+        revisionStatus: revision.status,
+      };
     }
 
     await this.prisma.productImage.createMany({
@@ -799,6 +896,25 @@ export class ProductService {
       });
     }
 
+    if (product.isApproved) {
+      const revision = await this.revisionService.savePendingRevision(
+        user.companyId,
+        id,
+        {
+          images: images.map((img) => ({
+            url: img.url,
+            isCover: img.isCover,
+          })),
+        },
+      );
+
+      return {
+        message: 'Görsel değişiklikleri yönetici onayına gönderildi',
+        revisionId: revision.id,
+        revisionStatus: revision.status,
+      };
+    }
+
     const coverImage =
       images.find((img) => img.isCover)?.url || null;
 
@@ -862,6 +978,44 @@ export class ProductService {
 
     if (product.sellerId !== user.companyId) {
       throw new ForbiddenException('Bu ürün size ait değil');
+    }
+
+    if (product.isApproved) {
+      const immediateFields = new Set([
+        'basePrice', 'stockQuantity', 'isActive',
+      ]);
+
+      const contentData = Object.fromEntries(
+        Object.entries(body).filter(
+          ([key, value]) => value !== undefined && !immediateFields.has(key),
+        ),
+      );
+
+      const immediateData = Object.fromEntries(
+        Object.entries(body).filter(
+          ([key, value]) => value !== undefined && immediateFields.has(key),
+        ),
+      );
+
+      if (Object.keys(contentData).length > 0) {
+        if (Object.keys(immediateData).length > 0) {
+          throw new BadRequestException(
+            'İçerik değişikliklerini fiyat ve stok güncellemelerinden ayrı gönderin',
+          );
+        }
+
+        const revision = await this.revisionService.savePendingRevision(
+          user.companyId,
+          id,
+          contentData,
+        );
+
+        return {
+          message: 'İçerik değişikliği yönetici onayına gönderildi',
+          revisionId: revision.id,
+          revisionStatus: revision.status,
+        };
+      }
     }
 
     const contentChanged =
