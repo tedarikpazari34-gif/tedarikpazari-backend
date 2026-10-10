@@ -686,7 +686,7 @@ export class ProductImportService {
       ['KDV (%)', 'Boş bırakılabilir. 0 ile 100 arasında tam sayı.'],
       ['Minimum Sipariş', 'Zorunlu ve en az 1.'],
       ['Sipariş Artış Miktarı', 'Boşsa 1 kabul edilir. Örnek MOQ 10, artış 5 => 10, 15, 20.'],
-      ['Görsel URL\'leri', 'Birden fazla adresi | işaretiyle ayırın. İlk geçerli adres kapak görselidir. Geçersiz adresler ürün satırını durdurmadan atlanır.'],
+      ['Görsel URL\'leri', 'Birden fazla adresi | işaretiyle ayırın. Tüm adresler geçerli HTTPS olmalıdır. İlk adres kapak görselidir. Geçersiz veya HTTP adresi bulunan ürün satırı hata olarak işaretlenir.'],
       ['Kaynak Dil', 'Boşsa tr kabul edilir.'],
       ['Varyantlar Sayfası', 'Opsiyonel. Ana Ürün SKU ile Ürünler sayfasındaki ürüne bağlanır. Aynı ürün için birden fazla varyant satırı eklenebilir.'],
       ['Varyant Aktif', 'Evet/Hayır veya true/false kullanılabilir. Boşsa aktif kabul edilir.'],
