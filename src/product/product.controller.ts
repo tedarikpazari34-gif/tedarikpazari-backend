@@ -128,6 +128,16 @@ export class ProductController {
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
+  @Get('mine/:id')
+  getMineOne(
+    @Req() req: any,
+    @Param('id') id: string,
+  ) {
+    return this.productService.getMineOne(req.user, id);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
   @Get(':id/revisions')
   listMyProductRevisions(
     @Req() req: any,

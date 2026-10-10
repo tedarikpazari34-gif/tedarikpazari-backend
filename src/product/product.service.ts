@@ -374,6 +374,57 @@ export class ProductService {
     });
   }
 
+  async getMineOne(user: any, productId: string) {
+    if (user.role !== Role.SELLER || !user.companyId) {
+      throw new ForbiddenException('Sadece SELLER kendi ürününü görüntüleyebilir');
+    }
+
+    const product = await this.prisma.product.findFirst({
+      where: {
+        id: productId,
+        sellerId: user.companyId,
+      },
+      include: {
+        category: true,
+        brand: true,
+        variants: {
+          orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        },
+        attributeValues: {
+          include: {
+            attribute: {
+              include: {
+                options: {
+                  where: { isActive: true },
+                  orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+                },
+              },
+            },
+          },
+        },
+        images: {
+          orderBy: { sortOrder: 'asc' },
+        },
+        seller: {
+          select: {
+            id: true,
+            name: true,
+            verified: true,
+            status: true,
+            email: true,
+            role: true,
+          },
+        },
+      },
+    });
+
+    if (!product) {
+      throw new NotFoundException('Ürün bulunamadı');
+    }
+
+    return product;
+  }
+
   async listMyProductRevisions(user: any, productId: string) {
     if (user.role !== Role.SELLER || !user.companyId) {
       throw new ForbiddenException(
