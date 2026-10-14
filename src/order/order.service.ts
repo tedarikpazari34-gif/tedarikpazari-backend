@@ -62,6 +62,10 @@ export class OrderService {
       where: { id: body.productId },
       include: {
         seller: true,
+        variants: {
+          where: { isActive: true },
+          select: { id: true },
+        },
       },
     });
 
@@ -77,9 +81,32 @@ export class OrderService {
       throw new BadRequestException('Kendi ürününüzü satın alamazsınız');
     }
 
+    if (product.variants.length > 0) {
+      throw new BadRequestException(
+        'Bu ürün varyant seçimi gerektiriyor. Varyant seçmeden sipariş oluşturulamaz',
+      );
+    }
+
+    if (
+      product.stockQuantity !== null &&
+      body.quantity > product.stockQuantity
+    ) {
+      throw new BadRequestException(
+        `Yetersiz stok. Mevcut stok: ${product.stockQuantity} ${product.unitType}`,
+      );
+    }
+
     if (body.quantity < product.moq) {
       throw new BadRequestException(
         `Minimum sipariş miktarı ${product.moq} ${product.unitType}`,
+      );
+    }
+
+    const quantityStep = Math.max(Number(product.quantityStep || 1), 1);
+
+    if ((body.quantity - product.moq) % quantityStep !== 0) {
+      throw new BadRequestException(
+        `Sipariş miktarı ${product.moq} değerinden başlayarak ${quantityStep} ${product.unitType} adımlarla artırılmalıdır`,
       );
     }
 
