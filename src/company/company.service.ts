@@ -355,7 +355,6 @@ export class CompanyService {
           seller: {
             select: {
               id: true,
-              name: true,
               verified: true,
               rating: true,
               reviewCount: true,
@@ -383,10 +382,6 @@ export class CompanyService {
         },
         select: {
           id: true,
-          name: true,
-          logo: true,
-          banner: true,
-          description: true,
           city: true,
           country: true,
           rating: true,
@@ -427,16 +422,15 @@ export class CompanyService {
   }
 
   async getPublicSellerProfile(id: string) {
-    const company = await this.prisma.company.findUnique({
-      where: { id },
+    const company = await this.prisma.company.findFirst({
+      where: {
+        id,
+        role: 'SELLER',
+        status: 'APPROVED',
+      },
       select: {
         id: true,
-        name: true,
         verified: true,
-        status: true,
-        logo: true,
-        banner: true,
-        description: true,
         city: true,
         country: true,
         responseTime: true,
@@ -450,8 +444,22 @@ export class CompanyService {
             isActive: true,
             isApproved: true,
           },
-          include: {
+          select: {
+            id: true,
+            title: true,
+            description: true,
+            imageUrl: true,
+            basePrice: true,
+            unitType: true,
+            moq: true,
+            leadTimeDays: true,
             images: {
+              select: {
+                id: true,
+                url: true,
+                isCover: true,
+                sortOrder: true,
+              },
               orderBy: {
                 sortOrder: 'asc',
               },
@@ -463,6 +471,12 @@ export class CompanyService {
         },
 
         sellerReviews: {
+          select: {
+            id: true,
+            rating: true,
+            comment: true,
+            createdAt: true,
+          },
           orderBy: {
             createdAt: 'desc',
           },
@@ -472,17 +486,8 @@ export class CompanyService {
     });
 
     if (!company) {
-      throw new NotFoundException('Şirket bulunamadı');
+      throw new NotFoundException('Satıcı bulunamadı');
     }
-
-    const profileCompletion =
-      [
-        company.logo,
-        company.banner,
-        company.description,
-        company.products.length > 0,
-        company.verified,
-      ].filter(Boolean).length * 20;
 
     return {
       ...company,
@@ -493,7 +498,6 @@ export class CompanyService {
         reviewCount: company.reviewCount ?? 0,
         memberSince: company.createdAt,
         responseTime: company.responseTime || null,
-        profileCompletion,
       },
     };
   }

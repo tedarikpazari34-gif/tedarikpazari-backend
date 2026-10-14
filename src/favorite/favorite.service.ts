@@ -43,8 +43,6 @@ export class FavoriteService {
             },
             seller: {
               select: {
-                id: true,
-                name: true,
                 verified: true,
                 rating: true,
                 reviewCount: true,
