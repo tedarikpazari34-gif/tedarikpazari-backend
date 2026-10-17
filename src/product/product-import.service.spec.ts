@@ -21,6 +21,9 @@ describe('ProductImportService XML import', () => {
     brand: {
       findMany: jest.fn(),
     },
+    categoryAttribute: {
+      findMany: jest.fn(),
+    },
     product: {
       findMany: jest.fn(),
     },
@@ -55,6 +58,7 @@ describe('ProductImportService XML import', () => {
     });
     prisma.category.findMany.mockResolvedValue([]);
     prisma.brand.findMany.mockResolvedValue([]);
+    prisma.categoryAttribute.findMany.mockResolvedValue([]);
     prisma.product.findMany.mockResolvedValue([]);
     prisma.productImportJob.create.mockResolvedValue({
       id: 'job-1',
@@ -75,7 +79,20 @@ describe('ProductImportService XML import', () => {
 
     service = new ProductImportService(
       prisma as never,
-      {} as never,
+      {
+        normalizeVariants: jest.fn((variants) =>
+          variants.map((variant: any, index: number) => ({
+            name: variant.name.trim(),
+            sku: variant.sku?.trim().toUpperCase() || null,
+            barcode: variant.barcode?.trim() || null,
+            manufacturerCode: variant.manufacturerCode?.trim() || null,
+            price: variant.price ?? null,
+            stockQuantity: variant.stockQuantity ?? null,
+            isActive: variant.isActive ?? true,
+            sortOrder: variant.sortOrder ?? index,
+          })),
+        ),
+      } as never,
       {} as never,
     );
   });
@@ -148,6 +165,92 @@ describe('ProductImportService XML import', () => {
         imageUrls: [
           'https://example.com/a.jpg',
           'https://example.com/b.jpg',
+        ],
+      }),
+    );
+  });
+
+  it('XML içindeki varyant ve kategori özelliklerini ortak import yapısına aktarır', async () => {
+    prisma.category.findMany.mockResolvedValue([
+      {
+        id: 'category-1',
+        name: 'Islak Mendiller',
+        parentId: null,
+      },
+    ]);
+
+    prisma.categoryAttribute.findMany.mockResolvedValue([
+      {
+        id: 'attribute-1',
+        categoryId: 'category-1',
+        code: 'YAPRAK',
+        name: 'Yaprak Sayısı',
+        type: 'NUMBER',
+        isRequired: true,
+        options: [],
+      },
+    ]);
+
+    const xml = `
+      <products>
+        <product>
+          <sku>abc-variant-001</sku>
+          <title>Varyantlı Test Ürün</title>
+          <categoryPath>Islak Mendiller</categoryPath>
+          <unitType>Adet</unitType>
+          <basePrice>90</basePrice>
+          <moq>10</moq>
+          <quantityStep>5</quantityStep>
+
+          <variants>
+            <variant>
+              <name>80 Yaprak</name>
+              <sku>abc-variant-001-80</sku>
+              <manufacturerCode>TEST-80</manufacturerCode>
+              <price>95</price>
+              <stockQuantity>25</stockQuantity>
+              <isActive>true</isActive>
+              <sortOrder>0</sortOrder>
+            </variant>
+          </variants>
+
+          <attributes>
+            <attribute>
+              <attributeCode>YAPRAK</attributeCode>
+              <value>80</value>
+            </attribute>
+          </attributes>
+        </product>
+      </products>
+    `;
+
+    await service.createXmlJob(user, file(xml));
+
+    const call = prisma.productImportRow.createMany.mock.calls[0][0];
+    expect(call.data).toHaveLength(1);
+
+    expect(call.data[0].normalized).toEqual(
+      expect.objectContaining({
+        sku: 'ABC-VARIANT-001',
+        categoryId: 'category-1',
+        variantsProvided: true,
+        variants: [
+          expect.objectContaining({
+            name: '80 Yaprak',
+            sku: 'ABC-VARIANT-001-80',
+            manufacturerCode: 'TEST-80',
+            price: 95,
+            stockQuantity: 25,
+            isActive: true,
+            sortOrder: 0,
+          }),
+        ],
+        attributeValuesProvided: true,
+        attributeValues: [
+          expect.objectContaining({
+            attributeId: 'attribute-1',
+            numberValue: 80,
+          }),
         ],
       }),
     );

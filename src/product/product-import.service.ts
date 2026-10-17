@@ -283,8 +283,10 @@ export class ProductImportService {
     parentsku: 'parentSku',
     varyantadi: 'name',
     variantname: 'name',
+    name: 'name',
     varyantsku: 'sku',
     variantsku: 'sku',
+    sku: 'sku',
     barkod: 'barcode',
     gtin: 'barcode',
     barcode: 'barcode',
@@ -1993,6 +1995,11 @@ export class ProductImportService {
       );
     }
 
+    const relatedRows: ImportRelatedRows = {
+      variants: [],
+      attributes: [],
+    };
+
     const rawRows = productNodes.map((node, index) => {
       if (!node || typeof node !== 'object' || Array.isArray(node)) {
         throw new BadRequestException(
@@ -2001,25 +2008,218 @@ export class ProductImportService {
       }
 
       const raw: Record<string, unknown> = {};
+      let variantsContainer: unknown;
+      let attributesContainer: unknown;
 
       for (const [xmlKey, xmlValue] of Object.entries(
         node as Record<string, unknown>,
       )) {
         const normalizedKey = this.normalizeHeader(xmlKey);
+
+        if (normalizedKey === 'variants') {
+          variantsContainer = xmlValue;
+          continue;
+        }
+
+        if (normalizedKey === 'attributes') {
+          attributesContainer = xmlValue;
+          continue;
+        }
+
         const mappedField = this.headerAliases[normalizedKey];
 
         if (!mappedField) continue;
 
-        if (
-          xmlValue !== null &&
-          typeof xmlValue === 'object'
-        ) {
+        if (xmlValue !== null && typeof xmlValue === 'object') {
           throw new BadRequestException(
             `XML alanı iç içe olamaz: ${xmlKey} (ürün ${index + 1})`,
           );
         }
 
         raw[mappedField] = xmlValue;
+      }
+
+      const parentSku = this.text(raw.sku).toUpperCase();
+
+      if (
+        (variantsContainer !== undefined ||
+          attributesContainer !== undefined) &&
+        !parentSku
+      ) {
+        throw new BadRequestException(
+          `XML ürün ${index + 1}: varyant veya özellik kullanımı için SKU zorunludur`,
+        );
+      }
+
+      if (variantsContainer !== undefined) {
+        if (
+          !variantsContainer ||
+          typeof variantsContainer !== 'object' ||
+          Array.isArray(variantsContainer)
+        ) {
+          throw new BadRequestException(
+            `XML variants yapısı geçerli değil (ürün ${index + 1})`,
+          );
+        }
+
+        const variantsObject = variantsContainer as Record<string, unknown>;
+        const unexpectedVariantFields = Object.keys(variantsObject).filter(
+          (key) => this.normalizeHeader(key) !== 'variant',
+        );
+
+        if (unexpectedVariantFields.length > 0) {
+          throw new BadRequestException(
+            `XML variants altında yalnızca variant düğümleri olabilir: ${unexpectedVariantFields.join(', ')}`,
+          );
+        }
+
+        const variantEntry = Object.entries(variantsObject).find(
+          ([key]) => this.normalizeHeader(key) === 'variant',
+        );
+
+        if (!variantEntry) {
+          throw new BadRequestException(
+            `XML variants içinde variant kaydı bulunamadı (ürün ${index + 1})`,
+          );
+        }
+
+        const variantNodes = Array.isArray(variantEntry[1])
+          ? variantEntry[1]
+          : [variantEntry[1]];
+
+        if (variantNodes.length > 500) {
+          throw new BadRequestException(
+            `Bir üründe en fazla 500 varyant bulunabilir (ürün ${index + 1})`,
+          );
+        }
+
+        for (const [variantIndex, variantNode] of variantNodes.entries()) {
+          if (
+            !variantNode ||
+            typeof variantNode !== 'object' ||
+            Array.isArray(variantNode)
+          ) {
+            throw new BadRequestException(
+              `XML variant kaydı geçerli değil: ürün ${index + 1}, varyant ${variantIndex + 1}`,
+            );
+          }
+
+          const variantRaw = {
+            parentSku,
+          } as Record<VariantExcelField, unknown>;
+
+          for (const [variantKey, variantValue] of Object.entries(
+            variantNode as Record<string, unknown>,
+          )) {
+            const mappedField =
+              this.variantHeaderAliases[this.normalizeHeader(variantKey)];
+
+            if (!mappedField || mappedField === 'parentSku') continue;
+
+            if (
+              variantValue !== null &&
+              typeof variantValue === 'object'
+            ) {
+              throw new BadRequestException(
+                `XML varyant alanı iç içe olamaz: ${variantKey} (ürün ${index + 1})`,
+              );
+            }
+
+            variantRaw[mappedField] = variantValue;
+          }
+
+          relatedRows.variants!.push({
+            rowNumber: relatedRows.variants!.length + 1,
+            raw: variantRaw,
+          });
+        }
+      }
+
+      if (attributesContainer !== undefined) {
+        if (
+          !attributesContainer ||
+          typeof attributesContainer !== 'object' ||
+          Array.isArray(attributesContainer)
+        ) {
+          throw new BadRequestException(
+            `XML attributes yapısı geçerli değil (ürün ${index + 1})`,
+          );
+        }
+
+        const attributesObject =
+          attributesContainer as Record<string, unknown>;
+        const unexpectedAttributeFields = Object.keys(attributesObject).filter(
+          (key) => this.normalizeHeader(key) !== 'attribute',
+        );
+
+        if (unexpectedAttributeFields.length > 0) {
+          throw new BadRequestException(
+            `XML attributes altında yalnızca attribute düğümleri olabilir: ${unexpectedAttributeFields.join(', ')}`,
+          );
+        }
+
+        const attributeEntry = Object.entries(attributesObject).find(
+          ([key]) => this.normalizeHeader(key) === 'attribute',
+        );
+
+        if (!attributeEntry) {
+          throw new BadRequestException(
+            `XML attributes içinde attribute kaydı bulunamadı (ürün ${index + 1})`,
+          );
+        }
+
+        const attributeNodes = Array.isArray(attributeEntry[1])
+          ? attributeEntry[1]
+          : [attributeEntry[1]];
+
+        if (attributeNodes.length > 200) {
+          throw new BadRequestException(
+            `Bir üründe en fazla 200 özellik bulunabilir (ürün ${index + 1})`,
+          );
+        }
+
+        for (const [attributeIndex, attributeNode] of attributeNodes.entries()) {
+          if (
+            !attributeNode ||
+            typeof attributeNode !== 'object' ||
+            Array.isArray(attributeNode)
+          ) {
+            throw new BadRequestException(
+              `XML attribute kaydı geçerli değil: ürün ${index + 1}, özellik ${attributeIndex + 1}`,
+            );
+          }
+
+          const attributeRaw = {
+            parentSku,
+          } as Record<AttributeExcelField, unknown>;
+
+          for (const [attributeKey, attributeValue] of Object.entries(
+            attributeNode as Record<string, unknown>,
+          )) {
+            const mappedField =
+              this.attributeHeaderAliases[
+                this.normalizeHeader(attributeKey)
+              ];
+
+            if (!mappedField || mappedField === 'parentSku') continue;
+
+            if (
+              attributeValue !== null &&
+              typeof attributeValue === 'object'
+            ) {
+              throw new BadRequestException(
+                `XML özellik alanı iç içe olamaz: ${attributeKey} (ürün ${index + 1})`,
+              );
+            }
+
+            attributeRaw[mappedField] = attributeValue;
+          }
+
+          relatedRows.attributes!.push({
+            rowNumber: relatedRows.attributes!.length + 1,
+            raw: attributeRaw,
+          });
+        }
       }
 
       return {
@@ -2033,6 +2233,7 @@ export class ProductImportService {
       ProductImportSource.XML,
       fileName,
       rawRows,
+      relatedRows,
     );
   }
 
