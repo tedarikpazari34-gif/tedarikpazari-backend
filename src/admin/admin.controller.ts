@@ -30,6 +30,20 @@ export class AdminController {
   }
 
   @UseGuards(JwtAuthGuard, AdminGuard)
+  @Post('product-revisions/:id/approve')
+  @ApiOperation({ summary: 'Approve product revision (ADMIN)' })
+  approveProductRevision(
+    @Req() req: any,
+    @Param('id') revisionId: string,
+  ) {
+    this.checkAdmin(req);
+    return this.productRevisionService.approveRevision(
+      req.user,
+      revisionId,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard, AdminGuard)
   @Post('product-revisions/:id/reject')
   @ApiOperation({ summary: 'Reject product revision (ADMIN)' })
   rejectProductRevision(
