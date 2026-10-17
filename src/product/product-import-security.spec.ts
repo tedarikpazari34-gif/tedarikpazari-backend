@@ -55,6 +55,7 @@ describe('ProductImportService moderation security', () => {
     imageUrl: null,
     images: [],
     attributeValues: [],
+    variants: [],
   };
 
   const tx = {
@@ -75,6 +76,7 @@ describe('ProductImportService moderation security', () => {
     productVariant: {
       deleteMany: jest.fn(),
       createMany: jest.fn(),
+      update: jest.fn(),
     },
     productAttributeValue: {
       deleteMany: jest.fn(),
@@ -197,6 +199,124 @@ describe('ProductImportService moderation security', () => {
     expect(tx.product.update).not.toHaveBeenCalled();
     expect(tx.productImportRow.update).not.toHaveBeenCalled();
   });
+
+  it('onaylı üründe aynı SKU varyantının yalnızca fiyat ve stok bilgisini kimliği koruyarak günceller', async () => {
+    tx.product.findUnique
+      .mockResolvedValueOnce({
+        id: productId,
+        sku: normalized.sku,
+        categoryId: null,
+      })
+      .mockResolvedValueOnce({ isApproved: true });
+
+    tx.product.findUniqueOrThrow.mockResolvedValue({
+      ...current,
+      variants: [
+        {
+          id: 'variant-1',
+          name: '80 Yaprak',
+          sku: 'SKU-001-80',
+          barcode: null,
+          manufacturerCode: 'TEST-80',
+          price: 95,
+          stockQuantity: 25,
+          isActive: true,
+          sortOrder: 0,
+        },
+      ],
+    });
+
+    const incoming = {
+      ...normalized,
+      title: current.title,
+      description: current.description,
+      variantsProvided: true,
+      variants: [
+        {
+          name: '80 Yaprak',
+          sku: 'SKU-001-80',
+          barcode: null,
+          manufacturerCode: 'TEST-80',
+          price: 99,
+          stockQuantity: 40,
+          isActive: true,
+          sortOrder: 0,
+        },
+      ],
+    };
+
+    await process({
+      ...row(ProductImportRowAction.UPDATE, productId),
+      normalized: incoming,
+    });
+
+    expect(tx.productVariant.deleteMany).not.toHaveBeenCalled();
+    expect(tx.productVariant.createMany).not.toHaveBeenCalled();
+    expect(tx.productVariant.update).toHaveBeenCalledWith({
+      where: { id: 'variant-1' },
+      data: {
+        price: 99,
+        stockQuantity: 40,
+      },
+    });
+  });
+
+  it('onaylı üründe varyant yapısı değişirse Excel/XML güncellemesini reddeder', async () => {
+    tx.product.findUnique
+      .mockResolvedValueOnce({
+        id: productId,
+        sku: normalized.sku,
+        categoryId: null,
+      })
+      .mockResolvedValueOnce({ isApproved: true });
+
+    tx.product.findUniqueOrThrow.mockResolvedValue({
+      ...current,
+      variants: [
+        {
+          id: 'variant-1',
+          name: '80 Yaprak',
+          sku: 'SKU-001-80',
+          barcode: null,
+          manufacturerCode: 'TEST-80',
+          price: 95,
+          stockQuantity: 25,
+          isActive: true,
+          sortOrder: 0,
+        },
+      ],
+    });
+
+    const incoming = {
+      ...normalized,
+      title: current.title,
+      description: current.description,
+      variantsProvided: true,
+      variants: [
+        {
+          name: '90 Yaprak',
+          sku: 'SKU-001-80',
+          barcode: null,
+          manufacturerCode: 'TEST-80',
+          price: 99,
+          stockQuantity: 40,
+          isActive: true,
+          sortOrder: 0,
+        },
+      ],
+    };
+
+    await expect(
+      process({
+        ...row(ProductImportRowAction.UPDATE, productId),
+        normalized: incoming,
+      }),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(tx.productVariant.update).not.toHaveBeenCalled();
+    expect(tx.productImportRow.update).not.toHaveBeenCalled();
+  });
+
 
   it('yalnızca fiyat ve stok değişikliğinde revizyon oluşturmaz', async () => {
     tx.product.findUnique

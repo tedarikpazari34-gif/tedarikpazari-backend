@@ -1157,6 +1157,20 @@ export class ProductImportService {
                   optionCodes: true,
                 },
               },
+              variants: {
+                select: {
+                  id: true,
+                  name: true,
+                  sku: true,
+                  barcode: true,
+                  manufacturerCode: true,
+                  price: true,
+                  stockQuantity: true,
+                  isActive: true,
+                  sortOrder: true,
+                },
+                orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }],
+              },
             },
           });
 
@@ -1166,11 +1180,78 @@ export class ProductImportService {
               normalized.brand,
             );
 
-          // Varyant kimlikleri güvenle eşleştirilmeden güncellenemez.
+          const variantPriceStockUpdates: Array<{
+            id: string;
+            price: number | null;
+            stockQuantity: number | null;
+          }> = [];
+
           if (normalized.variantsProvided) {
-            throw new BadRequestException(
-              'Onaylı ürünlerde varyant içeren Excel/XML güncellemesi henüz desteklenmiyor',
+            if (
+              normalized.variants.some((variant) => !variant.sku) ||
+              current.variants.some((variant) => !variant.sku)
+            ) {
+              throw new BadRequestException(
+                'Onaylı ürünlerde varyant fiyat/stok güncellemesi için tüm varyantlarda SKU zorunludur',
+              );
+            }
+
+            if (normalized.variants.length !== current.variants.length) {
+              throw new BadRequestException(
+                'Onaylı üründe varyant ekleme veya kaldırma Excel/XML ile otomatik uygulanamaz',
+              );
+            }
+
+            const currentVariantsBySku = new Map(
+              current.variants.map((variant) => [
+                variant.sku!.toUpperCase(),
+                variant,
+              ]),
             );
+
+            for (const incomingVariant of normalized.variants) {
+              const currentVariant = currentVariantsBySku.get(
+                incomingVariant.sku!.toUpperCase(),
+              );
+
+              if (!currentVariant) {
+                throw new BadRequestException(
+                  `Onaylı üründe yeni veya eşleşmeyen varyant SKU otomatik uygulanamaz: ${incomingVariant.sku}`,
+                );
+              }
+
+              if (
+                currentVariant.name !== incomingVariant.name ||
+                (currentVariant.barcode ?? null) !==
+                  (incomingVariant.barcode ?? null) ||
+                (currentVariant.manufacturerCode ?? null) !==
+                  (incomingVariant.manufacturerCode ?? null) ||
+                currentVariant.isActive !== incomingVariant.isActive ||
+                currentVariant.sortOrder !== incomingVariant.sortOrder
+              ) {
+                throw new BadRequestException(
+                  `Onaylı üründe varyant yapısı otomatik değiştirilemez; yalnızca fiyat ve stok güncellenebilir: ${incomingVariant.sku}`,
+                );
+              }
+
+              const currentPrice =
+                currentVariant.price === null
+                  ? null
+                  : Number(currentVariant.price);
+              const incomingPrice = incomingVariant.price ?? null;
+              const incomingStock = incomingVariant.stockQuantity ?? null;
+
+              if (
+                currentPrice !== incomingPrice ||
+                currentVariant.stockQuantity !== incomingStock
+              ) {
+                variantPriceStockUpdates.push({
+                  id: currentVariant.id,
+                  price: incomingPrice,
+                  stockQuantity: incomingStock,
+                });
+              }
+            }
           }
 
           const proposedData: Record<string, unknown> = {};
@@ -1297,6 +1378,16 @@ export class ProductImportService {
               stockQuantity: normalized.stockQuantity,
             },
           });
+
+          for (const variantUpdate of variantPriceStockUpdates) {
+            await tx.productVariant.update({
+              where: { id: variantUpdate.id },
+              data: {
+                price: variantUpdate.price,
+                stockQuantity: variantUpdate.stockQuantity,
+              },
+            });
+          }
 
           await tx.productImportRow.update({
             where: { id: row.id },
