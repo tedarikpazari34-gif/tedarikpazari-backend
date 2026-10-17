@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma.service';
 import { ProductController } from './product.controller';
 import { ProductService } from './product.service';
 import { ProductImportService } from './product-import.service';
+import { ProductXmlFeedService } from './product-xml-feed.service';
 import { ProductCatalogService } from './product-catalog.service';
 import { ProductRevisionService } from './product-revision.service';
 import { AiModule } from '../ai/ai.module';
@@ -11,6 +12,6 @@ import { AiModule } from '../ai/ai.module';
   imports: [AiModule],
   controllers: [ProductController],
   exports: [ProductRevisionService],
-  providers: [ProductService, ProductImportService, ProductCatalogService, ProductRevisionService, PrismaService],
+  providers: [ProductService, ProductImportService, ProductXmlFeedService, ProductCatalogService, ProductRevisionService, PrismaService],
 })
 export class ProductModule {}

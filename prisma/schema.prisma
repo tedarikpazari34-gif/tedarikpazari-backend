@@ -221,6 +221,7 @@ model Company {
 
   payoutRequests    PayoutRequest[]
   productImportJobs ProductImportJob[]
+  productXmlFeeds   ProductXmlFeed[]
   productRevisions  ProductRevision[]
 }
 
@@ -1070,6 +1071,31 @@ model PayoutRequest {
 
   @@index([companyId])
   @@index([status])
+}
+
+model ProductXmlFeed {
+  id                  String   @id @default(cuid())
+  sellerId            String
+  name                String
+  url                 String
+  isActive            Boolean  @default(false)
+  syncIntervalMinutes Int      @default(60)
+  nextSyncAt          DateTime @default(now())
+  syncLockToken       String?
+  syncLockExpiresAt   DateTime?
+  lastSyncStartedAt   DateTime?
+  lastSuccessAt       DateTime?
+  lastFailureAt       DateTime?
+  lastError           String?
+  lastJobId           String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  seller Company @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+
+  @@unique([sellerId, url])
+  @@index([sellerId, createdAt])
+  @@index([isActive, nextSyncAt])
 }
 
 model ProductImportJob {

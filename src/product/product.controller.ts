@@ -21,6 +21,7 @@ import { ApiBearerAuth, ApiConsumes, ApiBody, ApiQuery, ApiTags } from '@nestjs/
 
 import { ProductService } from './product.service';
 import { ProductImportService } from './product-import.service';
+import { ProductXmlFeedService } from './product-xml-feed.service';
 import { ProductImportRowAction } from '@prisma/client';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -39,6 +40,7 @@ export class ProductController {
   constructor(
     private readonly productService: ProductService,
     private readonly productImportService: ProductImportService,
+    private readonly productXmlFeedService: ProductXmlFeedService,
   ) {}
 
   @ApiQuery({ name: 'categoryId', required: false })
@@ -282,6 +284,55 @@ export class ProductController {
     }
 
     return this.productImportService.createXmlJob(req.user, file);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Get('xml-feeds')
+  listXmlFeeds(@Req() req: any) {
+    return this.productXmlFeedService.list(req.user);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Post('xml-feeds')
+  createXmlFeed(
+    @Req() req: any,
+    @Body()
+    body: {
+      name: string;
+      url: string;
+      syncIntervalMinutes?: number;
+    },
+  ) {
+    return this.productXmlFeedService.create(req.user, body);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Patch('xml-feeds/:feedId')
+  updateXmlFeed(
+    @Req() req: any,
+    @Param('feedId') feedId: string,
+    @Body()
+    body: {
+      name?: string;
+      url?: string;
+      isActive?: boolean;
+      syncIntervalMinutes?: number;
+    },
+  ) {
+    return this.productXmlFeedService.update(req.user, feedId, body);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Post('xml-feeds/:feedId/sync')
+  syncXmlFeed(
+    @Req() req: any,
+    @Param('feedId') feedId: string,
+  ) {
+    return this.productXmlFeedService.syncNow(req.user, feedId);
   }
 
   @ApiBearerAuth()

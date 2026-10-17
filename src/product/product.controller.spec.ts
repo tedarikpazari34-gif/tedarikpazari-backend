@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ProductController } from './product.controller';
 import { ProductService } from './product.service';
 import { ProductImportService } from './product-import.service';
+import { ProductXmlFeedService } from './product-xml-feed.service';
 
 describe('ProductController', () => {
   let controller: ProductController;
@@ -12,6 +13,7 @@ describe('ProductController', () => {
       providers: [
         { provide: ProductService, useValue: {} },
         { provide: ProductImportService, useValue: {} },
+        { provide: ProductXmlFeedService, useValue: {} },
       ],
     }).compile();
 
