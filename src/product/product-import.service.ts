@@ -1932,7 +1932,7 @@ export class ProductImportService {
       parseTagValue: false,
       parseAttributeValue: false,
       trimValues: true,
-      processEntities: false,
+      processEntities: true,
       maxNestedTags: 20,
     });
 

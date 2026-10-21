@@ -170,6 +170,35 @@ describe('ProductImportService XML import', () => {
     );
   });
 
+  it('XML kategori yolundaki &gt; karakterini çözümler', async () => {
+    prisma.category.findMany.mockResolvedValue([
+      { id: 'cat-1', name: 'Temizlik ve Hijyen', parentId: null },
+      { id: 'cat-2', name: 'Hijyen Sarf Malzemeleri', parentId: 'cat-1' },
+      { id: 'cat-3', name: 'Islak Mendiller', parentId: 'cat-2' },
+    ]);
+
+    const xml = `
+      <products>
+        <product>
+          <sku>XML-ENTITY-001</sku>
+          <title>XML Kategori Testi</title>
+          <categoryPath>Temizlik ve Hijyen &gt; Hijyen Sarf Malzemeleri &gt; Islak Mendiller</categoryPath>
+          <unitType>Adet</unitType>
+          <basePrice>90</basePrice>
+          <moq>10</moq>
+          <quantityStep>1</quantityStep>
+        </product>
+      </products>
+    `;
+
+    await service.createXmlJob(user, file(xml));
+
+    const call = prisma.productImportRow.createMany.mock.calls[0][0];
+    expect(call.data).toHaveLength(1);
+    expect(call.data[0].action).toBe(ProductImportRowAction.NEW);
+    expect(call.data[0].normalized.categoryId).toBe('cat-3');
+  });
+
   it('XML içindeki varyant ve kategori özelliklerini ortak import yapısına aktarır', async () => {
     prisma.category.findMany.mockResolvedValue([
       {
@@ -212,6 +241,15 @@ describe('ProductImportService XML import', () => {
               <isActive>true</isActive>
               <sortOrder>0</sortOrder>
             </variant>
+            <variant>
+              <name>100 Yaprak</name>
+              <sku>abc-variant-001-100</sku>
+              <manufacturerCode>TEST-100</manufacturerCode>
+              <price>115</price>
+              <stockQuantity>15</stockQuantity>
+              <isActive>true</isActive>
+              <sortOrder>1</sortOrder>
+            </variant>
           </variants>
 
           <attributes>
@@ -243,6 +281,15 @@ describe('ProductImportService XML import', () => {
             stockQuantity: 25,
             isActive: true,
             sortOrder: 0,
+          }),
+          expect.objectContaining({
+            name: '100 Yaprak',
+            sku: 'ABC-VARIANT-001-100',
+            manufacturerCode: 'TEST-100',
+            price: 115,
+            stockQuantity: 15,
+            isActive: true,
+            sortOrder: 1,
           }),
         ],
         attributeValuesProvided: true,
