@@ -457,4 +457,25 @@ describe('ProductImportService moderation security', () => {
     expect(rows[0].raw.productId).toBe(productId);
   });
 
+
+  it('Excel açıklamasındaki gereksiz boşluk güncelleme oluşturmamalı', () => {
+    const incoming = {
+      ...normalized,
+      title: current.title,
+      description: 'Çöp kovası Klik no:0 (1,5lt)',
+    };
+
+    const existing = {
+      ...current,
+      brand: null,
+      basePrice: normalized.basePrice,
+      stockQuantity: normalized.stockQuantity,
+      description: 'Çöp kovası Klik no:0 (1,5lt) ',
+    };
+
+    expect(
+      (service as any).productMatchesNormalized(existing, incoming),
+    ).toBe(true);
+  });
+
 });

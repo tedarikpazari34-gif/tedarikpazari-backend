@@ -2979,7 +2979,10 @@ export class ProductImportService {
       ) &&
       product.categoryId === normalized.categoryId &&
       product.title === normalized.title &&
-      this.sameNullableText(product.description, normalized.description) &&
+      this.sameNullableText(
+        product.description?.trim() ?? null,
+        normalized.description?.trim() ?? null,
+      ) &&
       product.sourceLanguage === normalized.sourceLanguage &&
       this.sameNullableText(product.country, normalized.country) &&
       this.sameNullableText(product.city, normalized.city) &&
