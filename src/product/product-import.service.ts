@@ -200,6 +200,7 @@ export class ProductImportService {
 
   private readonly headerAliases: Record<string, keyof NormalizedProductRow> = {
     urunid: 'productId',
+    uruniddegistirmeyin: 'productId',
     productid: 'productId',
 
     sku: 'sku',

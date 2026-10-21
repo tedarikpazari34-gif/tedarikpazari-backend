@@ -1,3 +1,4 @@
+import * as ExcelJS from 'exceljs';
 import { BadRequestException } from '@nestjs/common';
 import { ProductImportRowAction } from '@prisma/client';
 import { ProductImportService } from './product-import.service';
@@ -438,6 +439,22 @@ describe('ProductImportService moderation security', () => {
     for (const [args] of tx.product.update.mock.calls) {
       expect(args.data).not.toHaveProperty('sku');
     }
+  });
+
+
+  it('Excel dışa aktarma Ürün ID başlığını içe aktarırken tanır', () => {
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet('Ürünler');
+
+    sheet.addRow(['Ürün ID (Değiştirmeyin)', 'SKU', 'Ürün Adı']);
+    sheet.addRow([productId, '', 'Eski Ürün']);
+
+    const headers = (service as any).getHeaderMap(sheet);
+    expect(headers.get(1)).toBe('productId');
+
+    const rows = (service as any).readExcelRows(sheet, headers);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].raw.productId).toBe(productId);
   });
 
 });
