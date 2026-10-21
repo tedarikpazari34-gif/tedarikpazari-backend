@@ -353,4 +353,91 @@ describe('ProductImportService moderation security', () => {
     expect(tx.productImportRow.update).toHaveBeenCalledTimes(1);
   });
 
+  it('boş SKU olan eski ürünü ID ile eşleştirir, yeni üründe SKU ister', async () => {
+    const raw = {
+      productId,
+      sku: '',
+      title: normalized.title,
+      unitType: normalized.unitType,
+      moq: '10',
+      quantityStep: '1',
+      basePrice: '90',
+      stockQuantity: '100',
+      vatRate: '20',
+    };
+
+    const parsed = (service as any).normalizeImportedRow(raw, new Map());
+    expect(parsed.errors).toEqual([]);
+
+    const findMany = jest.fn().mockResolvedValue([{
+      ...current,
+      id: productId,
+      sku: null,
+      brand: null,
+      basePrice: 90,
+      stockQuantity: 100,
+    }]);
+
+    (service as any).prisma = { product: { findMany } };
+
+    const result = await (service as any).classifyRows(
+      sellerId,
+      [{
+        rowNumber: 2,
+        raw,
+        normalized: parsed.normalized,
+        errors: parsed.errors,
+      }],
+      new Map(),
+    );
+
+    expect(result[0].productId).toBe(productId);
+    expect(result[0].action).toBe(ProductImportRowAction.UPDATE);
+
+    const newRaw = { ...raw, productId: '' };
+    const newParsed = (service as any).normalizeImportedRow(newRaw, new Map());
+
+    const newResult = await (service as any).classifyRows(
+      sellerId,
+      [{
+        rowNumber: 3,
+        raw: newRaw,
+        normalized: newParsed.normalized,
+        errors: newParsed.errors,
+      }],
+      new Map(),
+    );
+
+    expect(newResult[0].action).toBe(ProductImportRowAction.ERROR);
+    expect(newResult[0].errors).toContain('SKU zorunludur');
+  });
+
+  it('SKU boş eski ürünün güncellemesinde SKU alanını değiştirmez', async () => {
+    tx.product.findFirst.mockResolvedValue({
+      id: productId,
+      sku: null,
+      categoryId: null,
+    });
+    tx.product.findUnique.mockResolvedValue({ isApproved: false });
+    tx.product.findUniqueOrThrow.mockResolvedValue({
+      ...current,
+      sku: null,
+    });
+
+    await process({
+      ...row(ProductImportRowAction.UPDATE, productId),
+      sku: null,
+      normalized: {
+        ...normalized,
+        productId,
+        sku: '',
+      },
+    });
+
+    expect(tx.product.update).toHaveBeenCalled();
+    for (const [args] of tx.product.update.mock.calls) {
+      expect(args.data).not.toHaveProperty('sku');
+    }
+  });
+
 });

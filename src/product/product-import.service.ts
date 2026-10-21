@@ -1019,7 +1019,10 @@ export class ProductImportService {
 
     const normalized = this.normalizedFromJson(row.normalized);
 
-    if (!normalized.sku) {
+    if (
+      !normalized.sku &&
+      (row.action !== ProductImportRowAction.UPDATE || !row.productId)
+    ) {
       throw new BadRequestException('SKU bulunamadı');
     }
 
@@ -1053,19 +1056,21 @@ export class ProductImportService {
         );
       }
 
-      const existingBySku = await tx.product.findUnique({
-        where: {
-          sellerId_sku: {
-            sellerId,
-            sku: normalized.sku,
-          },
-        },
-        select: {
-          id: true,
-          sku: true,
-          categoryId: true,
-        },
-      });
+      const existingBySku = normalized.sku
+        ? await tx.product.findUnique({
+            where: {
+              sellerId_sku: {
+                sellerId,
+                sku: normalized.sku,
+              },
+            },
+            select: {
+              id: true,
+              sku: true,
+              categoryId: true,
+            },
+          })
+        : null;
 
       if (
         existingById &&
@@ -1265,6 +1270,9 @@ export class ProductImportService {
           ] as const;
 
           for (const field of contentFields) {
+            if (field === 'sku' && !current.sku && !normalized.sku) {
+              continue;
+            }
             if (current[field] !== normalized[field]) {
               proposedData[field] = normalized[field];
             }
@@ -1415,7 +1423,7 @@ export class ProductImportService {
         const product = await tx.product.update({
           where: { id: existing.id },
           data: {
-            sku: normalized.sku,
+            ...(normalized.sku ? { sku: normalized.sku } : {}),
             brandId,
             barcode: normalized.barcode,
             manufacturerCode: normalized.manufacturerCode,
@@ -3150,6 +3158,10 @@ export class ProductImportService {
 
       const existing = byId ?? bySku;
 
+      if (!skuKey && (!byId || Boolean(byId.sku?.trim()))) {
+        errors.push('SKU zorunludur');
+      }
+
       if (
         (!existing || existing.categoryId !== row.normalized.categoryId) &&
         row.normalized.categoryId
@@ -3339,7 +3351,7 @@ export class ProductImportService {
     const vatRate =
       this.text(raw.vatRate) === '' ? null : this.integer(raw.vatRate);
 
-    if (!sku) errors.push('SKU zorunludur');
+    // SKU zorunlulugu satıcıya ait mevcut ürün ID doğrulandıktan sonra kontrol edilir.
     if (!title) errors.push('Ürün adı zorunludur');
     if (!unitType) errors.push('Birim zorunludur');
 
