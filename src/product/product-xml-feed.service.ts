@@ -517,6 +517,8 @@ export class ProductXmlFeedService {
 
     let heartbeatFailure: Error | null = null;
     let refreshing = false;
+    let productsCommitted = false;
+    let invalidFeedData = false;
 
     const heartbeat = setInterval(() => {
       if (refreshing || heartbeatFailure) return;
@@ -551,6 +553,9 @@ export class ProductXmlFeedService {
       const job = await this.importService.createXmlJob(user, {
         originalname: `${feed.name.slice(0, 80) || 'xml-feed'}.xml`,
         buffer,
+      }).catch((error: unknown) => {
+        if (error instanceof BadRequestException) invalidFeedData = true;
+        throw error;
       });
 
       await ensureLock();
@@ -580,80 +585,41 @@ export class ProductXmlFeedService {
       }
 
       if (job.errorRows > 0 || job.status === ProductImportStatus.VALIDATED) {
+        invalidFeedData = true;
         throw new BadRequestException(
           `XML feed ön kontrolünde ${job.errorRows} hatalı ürün satırı bulundu; hiçbir değişiklik uygulanmadı`,
         );
       }
 
-      if (job.status === ProductImportStatus.READY) {
-        await ensureLock();
-        await this.importService.confirmJob(user, job.id);
-        await ensureLock();
-
-        let current = await this.importService.getJob(user, job.id);
-        let guard = 0;
-
-        while (
-          current.status === ProductImportStatus.IMPORTING &&
-          guard < 100
-        ) {
-          await ensureLock();
-
-          current = await this.importService.processNextBatch(
-            user,
-            job.id,
-            200,
-          );
-
-          await ensureLock();
-          guard += 1;
-
-          if ((current.errorRows ?? 0) > 0) {
-            throw new BadRequestException(
-              `XML senkronizasyonunda ${current.errorRows} satır işlenemedi; önceki ürün güncellemeleri uygulanmış olabilir`,
-            );
-          }
-        }
-
-        if (current.status !== ProductImportStatus.COMPLETED) {
-          throw new BadRequestException(
-            'XML feed işlemi güvenli işlem sınırı içinde tamamlanamadı',
-          );
-        }
-      }
-
-      await ensureLock();
-
-      const now = new Date();
-      const nextSyncAt = new Date(
-        now.getTime() + feed.syncIntervalMinutes * 60 * 1000,
-      );
-
-      const successResult = await this.prisma.productXmlFeed.updateMany({
-        where: {
-          id: feed.id,
-          syncLockToken: token,
-          syncLockExpiresAt: { gt: now },
-        },
-        data: {
-          lastSuccessAt: now,
-          lastFailureAt: null,
-          lastError: null,
-          lastJobId: job.id,
-          nextSyncAt,
-        },
-      });
-
-      if (successResult.count !== 1) {
-        throw new ConflictException(
-          'XML feed senkronizasyon kilidi kaybedildi',
+      if (job.totalRows > 100) {
+        invalidFeedData = true;
+        throw new BadRequestException(
+          'Otomatik XML için en fazla 100 ürün destekleniyor',
         );
       }
 
-      return this.prisma.productXmlFeed.findUniqueOrThrow({
-        where: { id: feed.id },
-      });
+      if (job.status === ProductImportStatus.READY) {
+        await ensureLock();
+        const result = await this.importService.processFeedJobAtomically(
+          user,
+          job.id,
+          {
+            feedId: feed.id,
+            lockToken: token,
+            syncIntervalMinutes: feed.syncIntervalMinutes,
+          },
+        );
+        productsCommitted = true;
+        return result.feed!;
+      }
     } catch (error) {
+      if (productsCommitted) {
+        this.logger.warn(
+          `XML ürünleri kaydedildi ancak senkronizasyon durumu tamamlanamadı: ${feed.id}`,
+        );
+        throw error;
+      }
+
       const message =
         error instanceof Error
           ? error.message.slice(0, 1000)
@@ -674,6 +640,7 @@ export class ProductXmlFeedService {
           data: {
             lastFailureAt: now,
             lastError: message,
+            ...(invalidFeedData ? { isActive: false } : {}),
             nextSyncAt,
           },
         });
@@ -686,7 +653,13 @@ export class ProductXmlFeedService {
       throw error;
     } finally {
       clearInterval(heartbeat);
-      await this.releaseLock(feed.id, token);
+      try {
+        await this.releaseLock(feed.id, token);
+      } catch (error) {
+        this.logger.warn(
+          `XML feed kilidi bırakılamadı: ${feed.id} - ${String(error)}`,
+        );
+      }
     }
   }
 

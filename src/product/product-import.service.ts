@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -1094,7 +1095,7 @@ export class ProductImportService {
 
         if (
           (existingById.sku ?? '').toUpperCase() !==
-          normalized.sku.toUpperCase()
+          (normalized.sku ?? '').toUpperCase()
         ) {
           throw new BadRequestException(
             'Ürün SKU bilgisi ön kontrolden sonra değişmiş. İçe aktarma verisini yeniden yükleyin',
@@ -1559,6 +1560,151 @@ export class ProductImportService {
         processingStartedAt: null,
       },
     });
+  }
+
+  async processFeedJobAtomically(
+    user: ImportUser,
+    jobId: string,
+    feedContext?: {
+      feedId: string;
+      lockToken: string;
+      syncIntervalMinutes: number;
+    },
+  ) {
+    const company = await this.requireVerifiedSellerCompany(user);
+    const maxRows = 100;
+
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`
+        SELECT pg_advisory_xact_lock(
+          hashtextextended(${'product-import:' + jobId}, 0)
+        )::text
+      `;
+
+      const job = await tx.productImportJob.findFirst({
+        where: { id: jobId, sellerId: company.id },
+      });
+
+      if (!job || job.source !== ProductImportSource.XML) {
+        throw new NotFoundException('XML içe aktarma kaydı bulunamadı');
+      }
+
+      if (
+        job.status !== ProductImportStatus.READY ||
+        job.errorRows !== 0
+      ) {
+        throw new BadRequestException(
+          'XML ön kontrolü tamamen başarılı ve işleme hazır olmalıdır',
+        );
+      }
+
+      if (job.totalRows < 1 || job.totalRows > maxRows) {
+        throw new BadRequestException(
+          `Otomatik XML için en fazla ${maxRows} ürün destekleniyor`,
+        );
+      }
+
+      const rows = await tx.productImportRow.findMany({
+        where: { jobId: job.id },
+        orderBy: { rowNumber: 'asc' },
+        select: {
+          id: true,
+          sku: true,
+          action: true,
+          productId: true,
+          normalized: true,
+          processedAt: true,
+          processingToken: true,
+        },
+      });
+
+      if (
+        rows.length !== job.totalRows ||
+        rows.some(
+          (row) =>
+            row.processedAt !== null ||
+            row.processingToken !== null ||
+            !(
+              [
+                ProductImportRowAction.NEW,
+                ProductImportRowAction.UPDATE,
+                ProductImportRowAction.UNCHANGED,
+              ] as ProductImportRowAction[]
+            ).includes(row.action),
+        )
+      ) {
+        throw new BadRequestException(
+          'XML satırları değişmiş veya daha önce işlenmiş',
+        );
+      }
+
+      const now = new Date();
+
+      for (const row of rows) {
+        if (
+          row.action === ProductImportRowAction.NEW ||
+          row.action === ProductImportRowAction.UPDATE
+        ) {
+          await this.processImportRow(tx, company.id, row);
+        }
+      }
+
+      await tx.productImportRow.updateMany({
+        where: {
+          jobId: job.id,
+          action: ProductImportRowAction.UNCHANGED,
+          processedAt: null,
+        },
+        data: { processedAt: now },
+      });
+
+      await tx.productImportJob.update({
+        where: { id: job.id },
+        data: {
+          status: ProductImportStatus.COMPLETED,
+          startedAt: now,
+          completedAt: new Date(),
+          processedRows: rows.length,
+        },
+      });
+
+      if (feedContext) {
+        const successAt = new Date();
+
+        const feedResult = await tx.productXmlFeed.updateMany({
+          where: {
+            id: feedContext.feedId,
+            sellerId: company.id,
+            syncLockToken: feedContext.lockToken,
+            syncLockExpiresAt: { gt: successAt },
+          },
+          data: {
+            lastSuccessAt: successAt,
+            lastFailureAt: null,
+            lastError: null,
+            lastJobId: job.id,
+            nextSyncAt: new Date(
+              successAt.getTime() +
+              feedContext.syncIntervalMinutes * 60_000,
+            ),
+          },
+        });
+
+        if (feedResult.count !== 1) {
+          throw new ConflictException(
+            'XML feed senkronizasyon kilidi kaybedildi',
+          );
+        }
+
+        const savedFeed = await tx.productXmlFeed.findUniqueOrThrow({
+          where: { id: feedContext.feedId },
+        });
+
+        return { id: job.id, status: ProductImportStatus.COMPLETED, feed: savedFeed };
+      }
+
+      return { id: job.id, status: ProductImportStatus.COMPLETED };
+    }, { maxWait: 5000, timeout: 30000 });
   }
 
   async processNextBatch(

@@ -587,7 +587,7 @@ export class ProductRevisionService {
         SELECT pg_advisory_xact_lock(
           hashtext('product-revision'),
           hashtext(${productId})
-        )
+        )::text
       `;
 
       const product = await tx.product.findUnique({

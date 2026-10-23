@@ -23,6 +23,7 @@ describe('ProductXmlFeedService', () => {
     confirmJob: jest.fn(),
     getJob: jest.fn(),
     processNextBatch: jest.fn(),
+    processFeedJobAtomically: jest.fn(),
   };
 
   const user = {
@@ -208,18 +209,12 @@ describe('ProductXmlFeedService', () => {
     });
 
     importService.confirmJob.mockResolvedValue({});
-    importService.getJob.mockResolvedValue({
-      status: ProductImportStatus.IMPORTING,
-      errorRows: 0,
-    });
-
-    importService.processNextBatch.mockResolvedValue({
-      status: ProductImportStatus.COMPLETED,
-      errorRows: 1,
-    });
+      importService.processFeedJobAtomically.mockRejectedValueOnce(
+        new Error('Geçici veritabanı hatası'),
+      );
 
     await expect(service.syncNow(user, 'feed-1')).rejects.toThrow(
-      'önceki ürün güncellemeleri uygulanmış olabilir',
+      'Geçici veritabanı hatası',
     );
 
     expect(prisma.productXmlFeed.updateMany).toHaveBeenCalledWith(
@@ -234,9 +229,16 @@ describe('ProductXmlFeedService', () => {
       expect.objectContaining({
         data: expect.objectContaining({
           lastFailureAt: expect.any(Date),
+            nextSyncAt: expect.any(Date),
         }),
       }),
     );
+    expect(prisma.productXmlFeed.updateMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ isActive: false }),
+      }),
+    );
+
   });
 
   it('mevcut XML import motorunu kullanarak feed işini tamamlar', async () => {
@@ -284,15 +286,26 @@ describe('ProductXmlFeedService', () => {
       lastJobId: 'job-1',
     });
 
+    importService.processFeedJobAtomically.mockResolvedValue({
+      id: 'job-1',
+      status: ProductImportStatus.COMPLETED,
+      feed: { id: 'feed-1', lastJobId: 'job-1' },
+    });
+
     const result = await service.syncNow(user, 'feed-1');
 
     expect(importService.createXmlJob).toHaveBeenCalled();
-    expect(importService.confirmJob).toHaveBeenCalledWith(user, 'job-1');
-    expect(importService.processNextBatch).toHaveBeenCalledWith(
+    expect(importService.processFeedJobAtomically).toHaveBeenCalledWith(
       user,
       'job-1',
-      200,
+      expect.objectContaining({
+        feedId: 'feed-1',
+        lockToken: expect.any(String),
+        syncIntervalMinutes: 60,
+      }),
     );
+    expect(importService.confirmJob).not.toHaveBeenCalled();
+    expect(importService.processNextBatch).not.toHaveBeenCalled();
     expect(result).toEqual(
       expect.objectContaining({
         id: 'feed-1',
@@ -300,4 +313,144 @@ describe('ProductXmlFeedService', () => {
       }),
     );
   });
+
+  it('atomik işlem sonrası ek sonuç okuması yapılmaz ve feed pasifleştirilmez', async () => {
+    const anyService = service as any;
+
+    jest.spyOn(anyService, 'downloadXml')
+      .mockResolvedValue(Buffer.from('<products></products>'));
+
+    prisma.productXmlFeed.findFirst.mockResolvedValue({
+      id: 'feed-1',
+      sellerId: user.companyId,
+      name: 'Test',
+      url: 'https://example.com/feed.xml',
+      syncIntervalMinutes: 60,
+    });
+
+    prisma.productXmlFeed.updateMany.mockResolvedValue({ count: 1 });
+    prisma.productXmlFeed.findUniqueOrThrow.mockRejectedValueOnce(
+      new Error('XML bağlantısının son durumu okunamadı'),
+    );
+
+    importService.createXmlJob.mockResolvedValue({
+      id: 'job-committed',
+      status: ProductImportStatus.READY,
+      errorRows: 0,
+    });
+
+    importService.processFeedJobAtomically.mockResolvedValue({
+      id: 'job-committed',
+      status: ProductImportStatus.COMPLETED,
+      feed: { id: 'feed-1', lastJobId: 'job-committed' },
+    });
+
+    const result = await service.syncNow(user, 'feed-1');
+    expect(result.lastJobId).toBe('job-committed');
+    expect(prisma.productXmlFeed.findUniqueOrThrow).not.toHaveBeenCalled();
+
+    expect(importService.processFeedJobAtomically).toHaveBeenCalled();
+
+    expect(prisma.productXmlFeed.updateMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ isActive: false }),
+      }),
+    );
+  });
+
+
+  it('kilit bırakma hatası başarılı XML senkronizasyonunu bozmaz', async () => {
+    const anyService = service as any;
+    jest.spyOn(anyService, 'downloadXml')
+      .mockResolvedValue(Buffer.from('<products></products>'));
+    const releaseLock = jest.spyOn(anyService, 'releaseLock')
+      .mockRejectedValue(new Error('Kilit bırakma hatası'));
+
+    prisma.productXmlFeed.findFirst.mockResolvedValue({
+      id: 'feed-1', sellerId: user.companyId,
+      name: 'Test',
+      url: 'https://example.com/feed.xml',
+      syncIntervalMinutes: 60,
+    });
+    prisma.productXmlFeed.updateMany.mockResolvedValue({ count: 1 });
+    prisma.productXmlFeed.update.mockResolvedValue({});
+    importService.createXmlJob.mockResolvedValue({
+      id: 'job-1', status: ProductImportStatus.READY, errorRows: 0,
+    });
+    importService.processFeedJobAtomically.mockResolvedValue({
+      id: 'job-1', status: ProductImportStatus.COMPLETED,
+      feed: { id: 'feed-1', lastJobId: 'job-1' },
+    });
+
+    await expect(service.syncNow(user, 'feed-1')).resolves.toMatchObject({
+      id: 'feed-1', lastJobId: 'job-1',
+    });
+    expect(releaseLock).toHaveBeenCalledTimes(1);
+    expect(prisma.productXmlFeed.updateMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ isActive: false }),
+      }),
+    );
+  });
+
+
+  it('101 ürün içeren XML feed bağlantısını durdurur', async () => {
+    jest.spyOn(service as any, 'downloadXml')
+      .mockResolvedValue(Buffer.from('<products></products>'));
+
+    prisma.productXmlFeed.findFirst.mockResolvedValue({
+      id: 'feed-1', sellerId: user.companyId,
+      name: 'Test', url: 'https://example.com/feed.xml',
+      syncIntervalMinutes: 60,
+    });
+    prisma.productXmlFeed.updateMany.mockResolvedValue({ count: 1 });
+    importService.createXmlJob.mockResolvedValue({
+      id: 'job-101', status: ProductImportStatus.READY,
+      errorRows: 0, totalRows: 101,
+    });
+
+    await expect(service.syncNow(user, 'feed-1'))
+      .rejects.toThrow('Otomatik XML için en fazla 100 ürün');
+
+    expect(importService.processFeedJobAtomically)
+      .not.toHaveBeenCalled();
+    expect(prisma.productXmlFeed.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ isActive: false }),
+      }),
+    );
+  });
+
+
+  it('bozuk XML dosyasında feed bağlantısını durdurur', async () => {
+    jest.spyOn(service as any, 'downloadXml')
+      .mockResolvedValue(Buffer.from('<products>bozuk'));
+
+    prisma.productXmlFeed.findFirst.mockResolvedValue({
+      id: 'feed-1', sellerId: user.companyId,
+      name: 'Test', url: 'https://example.com/feed.xml',
+      syncIntervalMinutes: 60,
+    });
+    prisma.productXmlFeed.updateMany.mockResolvedValue({ count: 1 });
+
+    importService.createXmlJob.mockRejectedValueOnce(
+      new BadRequestException('XML dosyası geçerli değil veya bozuk'),
+    );
+
+    await expect(service.syncNow(user, 'feed-1'))
+      .rejects.toThrow('XML dosyası geçerli değil veya bozuk');
+
+    expect(importService.processFeedJobAtomically)
+      .not.toHaveBeenCalled();
+
+    expect(prisma.productXmlFeed.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          isActive: false,
+          lastFailureAt: expect.any(Date),
+        }),
+      }),
+    );
+  });
+
 });
