@@ -8,6 +8,7 @@ describe('ProductRevisionService approval security', () => {
       findUnique: jest.fn(),
       findUniqueOrThrow: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn(),
     },
     product: {
       findUnique: jest.fn(),
@@ -104,5 +105,71 @@ describe('ProductRevisionService approval security', () => {
         rejectionReason: null,
       },
     });
+  });
+
+  it('satıcının revizyon reddetmesini engeller', async () => {
+    await expect(
+      service.rejectRevision(
+        { id: 'seller-user', role: 'SELLER' as never },
+        'revision-1',
+        'Uygun değil',
+      ),
+    ).rejects.toThrow(ForbiddenException);
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('boş ret gerekçesini kabul etmez', async () => {
+    await expect(
+      service.rejectRevision(
+        { id: 'admin-1', role: 'ADMIN' as never },
+        'revision-1',
+        '   ',
+      ),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('sonuçlandırılmış revizyonun yeniden reddedilmesini engeller', async () => {
+    tx.productRevision.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(
+      service.rejectRevision(
+        { id: 'admin-1', role: 'ADMIN' as never },
+        'revision-1',
+        'Eksik bilgi',
+      ),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(tx.product.update).not.toHaveBeenCalled();
+  });
+
+  it('ret gerekçesini kaydeder ve ürün bilgilerini değiştirmez', async () => {
+    tx.productRevision.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(
+      service.rejectRevision(
+        { id: 'admin-1', role: 'ADMIN' as never },
+        'revision-1',
+        '  Eksik ürün açıklaması  ',
+      ),
+    ).resolves.toEqual({
+      revisionId: 'revision-1',
+      status: 'REJECTED',
+      rejectionReason: 'Eksik ürün açıklaması',
+    });
+
+    expect(tx.productRevision.updateMany).toHaveBeenCalledWith({
+      where: { id: 'revision-1', status: 'PENDING' },
+      data: {
+        status: 'REJECTED',
+        reviewedById: 'admin-1',
+        reviewedAt: expect.any(Date),
+        rejectionReason: 'Eksik ürün açıklaması',
+      },
+    });
+
+    expect(tx.product.update).not.toHaveBeenCalled();
   });
 });

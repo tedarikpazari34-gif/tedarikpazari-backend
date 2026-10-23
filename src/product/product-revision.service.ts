@@ -42,7 +42,7 @@ export class ProductRevisionService {
         SELECT pg_advisory_xact_lock(
           hashtext('product-revision'),
           hashtext(${initial.productId})
-        )
+        )::text
       `;
 
       const revision = await tx.productRevision.findUniqueOrThrow({
@@ -425,7 +425,7 @@ export class ProductRevisionService {
         SELECT pg_advisory_xact_lock(
           hashtext('product-revision'),
           hashtext(${initial.productId})
-        )
+        )::text
       `;
 
       const result = await tx.productRevision.updateMany({

@@ -337,6 +337,21 @@ export class ProductController {
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
+  @Get('bulk-import/jobs')
+  listImportJobs(
+    @Req() req: any,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.productImportService.listJobs(
+      req.user,
+      Number(page),
+      Number(limit),
+    );
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
   @Get('bulk-import/jobs/:jobId')
   getImportJob(@Req() req: any, @Param('jobId') jobId: string) {
     return this.productImportService.getJob(req.user, jobId);

@@ -1851,89 +1851,129 @@ export class ProductImportService {
       }
     }
 
-    const [
-      errorRows,
-      newRows,
-      updateRows,
-      unchangedRows,
-      processedRows,
-      remainingRows,
-    ] = await this.prisma.$transaction([
-      this.prisma.productImportRow.count({
-        where: {
-          jobId: job.id,
-          action: ProductImportRowAction.ERROR,
-        },
-      }),
-      this.prisma.productImportRow.count({
-        where: {
-          jobId: job.id,
-          action: ProductImportRowAction.NEW,
-        },
-      }),
-      this.prisma.productImportRow.count({
-        where: {
-          jobId: job.id,
-          action: ProductImportRowAction.UPDATE,
-        },
-      }),
-      this.prisma.productImportRow.count({
-        where: {
-          jobId: job.id,
-          action: ProductImportRowAction.UNCHANGED,
-        },
-      }),
-      this.prisma.productImportRow.count({
-        where: {
-          jobId: job.id,
-          processedAt: { not: null },
-          action: {
-            in: [
-              ProductImportRowAction.NEW,
-              ProductImportRowAction.UPDATE,
-              ProductImportRowAction.UNCHANGED,
-            ],
-          },
-        },
-      }),
-      this.prisma.productImportRow.count({
-        where: {
-          jobId: job.id,
-          processedAt: null,
-          action: {
-            in: [
-              ProductImportRowAction.NEW,
-              ProductImportRowAction.UPDATE,
-            ],
-          },
-        },
-      }),
-    ]);
+    const remainingRows = await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`
+        SELECT pg_advisory_xact_lock(
+          hashtextextended(${'product-import:' + job.id}, 0)
+        )::text
+      `;
 
-    const completed = remainingRows === 0;
-
-    await this.prisma.productImportJob.update({
-      where: { id: job.id },
-      data: {
+      const [
         errorRows,
         newRows,
         updateRows,
         unchangedRows,
-        readyRows: job.totalRows - errorRows,
         processedRows,
-        ...(completed
-          ? {
-              status: ProductImportStatus.COMPLETED,
-              completedAt: new Date(),
-            }
-          : {}),
-      },
+        remaining,
+      ] = await Promise.all([
+        tx.productImportRow.count({
+          where: {
+            jobId: job.id,
+            action: ProductImportRowAction.ERROR,
+          },
+        }),
+        tx.productImportRow.count({
+          where: {
+            jobId: job.id,
+            action: ProductImportRowAction.NEW,
+          },
+        }),
+        tx.productImportRow.count({
+          where: {
+            jobId: job.id,
+            action: ProductImportRowAction.UPDATE,
+          },
+        }),
+        tx.productImportRow.count({
+          where: {
+            jobId: job.id,
+            action: ProductImportRowAction.UNCHANGED,
+          },
+        }),
+        tx.productImportRow.count({
+          where: {
+            jobId: job.id,
+            processedAt: { not: null },
+            action: {
+              in: [
+                ProductImportRowAction.NEW,
+                ProductImportRowAction.UPDATE,
+                ProductImportRowAction.UNCHANGED,
+              ],
+            },
+          },
+        }),
+        tx.productImportRow.count({
+          where: {
+            jobId: job.id,
+            processedAt: null,
+            action: {
+              in: [
+                ProductImportRowAction.NEW,
+                ProductImportRowAction.UPDATE,
+              ],
+            },
+          },
+        }),
+      ]);
+
+      await tx.productImportJob.update({
+        where: { id: job.id },
+        data: {
+          errorRows,
+          newRows,
+          updateRows,
+          unchangedRows,
+          readyRows: job.totalRows - errorRows,
+          processedRows,
+          ...(remaining === 0
+            ? {
+                status: ProductImportStatus.COMPLETED,
+                completedAt: new Date(),
+              }
+            : {}),
+        },
+      });
+
+      return remaining;
     });
 
     return {
       ...(await this.getJob(user, job.id)),
       batchProcessed: rows.length,
       remainingRows,
+    };
+  }
+
+  async listJobs(user: ImportUser, page = 1, limit = 20) {
+    const company = await this.requireVerifiedSellerCompany(user);
+    const safePage = Number.isSafeInteger(page) && page > 0 ? page : 1;
+    const safeLimit = Number.isSafeInteger(limit) && limit > 0
+      ? Math.min(limit, 50) : 20;
+    const where = { sellerId: company.id };
+
+    const [total, jobs] = await this.prisma.$transaction([
+      this.prisma.productImportJob.count({ where }),
+      this.prisma.productImportJob.findMany({
+        where,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        skip: (safePage - 1) * safeLimit,
+        take: safeLimit,
+        select: {
+          id: true, source: true, status: true,
+          originalFileName: true, totalRows: true,
+          readyRows: true, errorRows: true,
+          newRows: true, updateRows: true,
+          unchangedRows: true, processedRows: true,
+          createdAt: true, completedAt: true,
+          failedAt: true, failureMessage: true,
+        },
+      }),
+    ]);
+
+    return {
+      jobs, total, page: safePage, limit: safeLimit,
+      totalPages: Math.ceil(total / safeLimit),
     };
   }
 
