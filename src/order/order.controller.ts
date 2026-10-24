@@ -23,12 +23,6 @@ export class OrderController {
   }
 
   @UseGuards(JwtAuthGuard)
-  @Post('from-quote/:quoteId')
-  createFromQuote(@Req() req: any, @Param('quoteId') quoteId: string) {
-    return this.orderService.createFromQuote(req.user, quoteId);
-  }
-
-  @UseGuards(JwtAuthGuard)
   @Get()
   list(@Req() req: any) {
     return this.orderService.list(req.user);

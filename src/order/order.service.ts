@@ -102,11 +102,12 @@ export class OrderService {
       );
     }
 
-    const quantityStep = Math.max(Number(product.quantityStep || 1), 1);
-
-    if ((body.quantity - product.moq) % quantityStep !== 0) {
+    if (
+      !Number.isInteger(body.quantity) ||
+      body.quantity % product.moq !== 0
+    ) {
       throw new BadRequestException(
-        `Sipariş miktarı ${product.moq} değerinden başlayarak ${quantityStep} ${product.unitType} adımlarla artırılmalıdır`,
+        `Sipariş miktarı minimum ${product.moq} ${product.unitType} miktarının tam katı olmalıdır`,
       );
     }
 
