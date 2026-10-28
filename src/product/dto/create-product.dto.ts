@@ -37,6 +37,11 @@ export class ProductVariantDto {
   stockQuantity?: number;
 
   @IsOptional()
+  @IsInt()
+  @Min(0)
+  minStockThreshold?: number | null;
+
+  @IsOptional()
   @IsBoolean()
   isActive?: boolean;
 
@@ -149,6 +154,11 @@ export class CreateProductDto {
   @IsInt()
   @Min(0)
   stockQuantity?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  minStockThreshold?: number | null;
 
   @IsOptional()
   @IsInt()

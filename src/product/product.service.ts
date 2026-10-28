@@ -329,6 +329,82 @@ export class ProductService {
     return products.map((product) => this.applyTranslation(product));
   }
 
+  async updateVariantStockThreshold(
+    user: any,
+    productId: string,
+    variantId: string,
+    threshold: number | null,
+  ) {
+    await this.requireVerifiedSellerCompany(user);
+
+    if (
+      threshold !== null &&
+      (
+        typeof threshold !== 'number' ||
+        !Number.isInteger(threshold) ||
+        threshold < 0 ||
+        threshold > 2147483647
+      )
+    ) {
+      throw new BadRequestException(
+        'Kritik stok seviyesi 0 veya daha büyük bir tam sayı olmalıdır',
+      );
+    }
+
+    const variant = await this.prisma.productVariant.findFirst({
+      where: {
+        id: variantId,
+        productId,
+        product: {
+          sellerId: user.companyId,
+        },
+      },
+      select: {
+        id: true,
+        minStockThreshold: true,
+      },
+    });
+
+    if (!variant) {
+      throw new NotFoundException(
+        'Varyant bulunamadı veya bu firmaya ait değil',
+      );
+    }
+
+    if (variant.minStockThreshold === threshold) {
+      return {
+        id: variant.id,
+        minStockThreshold: threshold,
+      };
+    }
+
+    const result = await this.prisma.productVariant.updateMany({
+      where: {
+        id: variant.id,
+        productId,
+        product: {
+          sellerId: user.companyId,
+        },
+        minStockThreshold: variant.minStockThreshold,
+      },
+      data: {
+        minStockThreshold: threshold,
+        stockAlertActive: false,
+      },
+    });
+
+    if (result.count !== 1) {
+      throw new BadRequestException(
+        'Varyant stok eşiği eşzamanlı değiştirildi. Yeniden yükleyin.',
+      );
+    }
+
+    return {
+      id: variant.id,
+      minStockThreshold: threshold,
+    };
+  }
+
   async listMine(user: any) {
     if (user.role !== Role.SELLER) {
       throw new ForbiddenException('Sadece SELLER kendi ürünlerini görebilir');
@@ -639,7 +715,13 @@ export class ProductService {
     }
 
     const translated = this.applyTranslation(product);
-    const { _count, reservedQuantity, ...publicProduct } = translated;
+    const {
+      _count,
+      reservedQuantity,
+      minStockThreshold,
+      stockAlertActive,
+      ...publicProduct
+    } = translated;
 
     return {
       ...publicProduct,
@@ -652,7 +734,7 @@ export class ProductService {
               product.stockQuantity - product.reservedQuantity,
             ),
       variants: product.variants.map(
-        ({ reservedQuantity, ...variant }) => ({
+        ({ reservedQuantity, minStockThreshold, stockAlertActive, ...variant }) => ({
           ...variant,
           availableStock:
             variant.stockQuantity === null
@@ -794,6 +876,7 @@ export class ProductService {
             body.stockQuantity !== undefined && body.stockQuantity !== null
               ? Number(body.stockQuantity)
               : null,
+          minStockThreshold: body.minStockThreshold ?? null,
           vatRate: body.vatRate ?? null,
           rfqEnabled: body.rfqEnabled ?? true,
           isActive: true,
@@ -1062,7 +1145,7 @@ export class ProductService {
 
     if (product.isApproved) {
       const immediateFields = new Set([
-        'basePrice', 'stockQuantity', 'isActive',
+        'basePrice', 'stockQuantity', 'minStockThreshold', 'isActive',
       ]);
 
       const contentData = Object.fromEntries(
@@ -1101,6 +1184,11 @@ export class ProductService {
     const contentChanged =
       body.title !== undefined || body.description !== undefined;
 
+    const thresholdPatch = planProductStockThresholdUpdate(
+      product.minStockThreshold,
+      body.minStockThreshold,
+    );
+
     const updatedProduct = await this.prisma.$transaction(async (tx) => {
       const effectiveCategoryId =
         body.categoryId !== undefined
@@ -1138,6 +1226,7 @@ export class ProductService {
         where: {
           id,
           sellerId: user.companyId,
+          ...thresholdPatch.where,
           ...(body.stockQuantity !== undefined &&
           body.stockQuantity !== null
             ? {
@@ -1188,6 +1277,7 @@ export class ProductService {
                     : Number(body.stockQuantity),
               }
             : {}),
+          ...thresholdPatch.data,
           ...(body.vatRate !== undefined
             ? { vatRate: body.vatRate ?? null }
             : {}),
@@ -1351,4 +1441,27 @@ export class ProductService {
       },
     });
   }
+}
+
+export function planProductStockThresholdUpdate(
+  previous: number | null,
+  next: number | null | undefined,
+): {
+  where: { minStockThreshold?: number | null };
+  data: {
+    minStockThreshold?: number | null;
+    stockAlertActive?: boolean;
+  };
+} {
+  if (next === undefined || next === previous) {
+    return { where: {}, data: {} };
+  }
+
+  return {
+    where: { minStockThreshold: previous },
+    data: {
+      minStockThreshold: next,
+      stockAlertActive: false,
+    },
+  };
 }

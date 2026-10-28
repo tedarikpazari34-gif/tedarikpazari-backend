@@ -140,6 +140,23 @@ export class ProductController {
 
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
+  @Patch('mine/:id/variants/:variantId/stock-threshold')
+  updateVariantStockThreshold(
+    @Req() req: any,
+    @Param('id') productId: string,
+    @Param('variantId') variantId: string,
+    @Body('minStockThreshold') threshold: number | null,
+  ) {
+    return this.productService.updateVariantStockThreshold(
+      req.user,
+      productId,
+      variantId,
+      threshold,
+    );
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
   @Get(':id/revisions')
   listMyProductRevisions(
     @Req() req: any,

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
+import { StockAlertModule } from './stock-alert/stock-alert.module';
 import { AppController } from './app.controller';
 import { UploadModule } from './upload/upload.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -34,6 +35,7 @@ import { AiModule } from './ai/ai.module';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
+    StockAlertModule,
     PrismaModule,
     CommonModule,
     UploadModule,

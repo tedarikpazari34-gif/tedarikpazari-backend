@@ -223,6 +223,7 @@ export class ProductCatalogService {
         manufacturerCode: variant.manufacturerCode?.trim() || null,
         price: variant.price ?? null,
         stockQuantity: variant.stockQuantity ?? null,
+        minStockThreshold: variant.minStockThreshold ?? null,
         isActive: variant.isActive ?? true,
         sortOrder: variant.sortOrder ?? index,
       };

@@ -239,6 +239,17 @@ export class AdminService {
       include: {
         seller: true,
         category: true,
+        variants: {
+          select: {
+            id: true,
+            name: true,
+            isActive: true,
+            stockQuantity: true,
+            reservedQuantity: true,
+            minStockThreshold: true,
+          },
+          orderBy: { sortOrder: 'asc' },
+        },
         images: {
           orderBy: {
             sortOrder: 'asc',

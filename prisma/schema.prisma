@@ -446,6 +446,8 @@ model Product {
   stockType     String?
   stockQuantity Int?
   reservedQuantity Int @default(0)
+  minStockThreshold Int?
+  stockAlertActive Boolean @default(false)
   vatRate       Int?
 
   rfqEnabled Boolean @default(true)
@@ -489,6 +491,8 @@ model ProductVariant {
   price            Decimal?
   stockQuantity    Int?
   reservedQuantity Int @default(0)
+  minStockThreshold Int?
+  stockAlertActive Boolean @default(false)
   isActive         Boolean  @default(true)
   sortOrder        Int      @default(0)
   createdAt        DateTime @default(now())
