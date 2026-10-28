@@ -427,8 +427,8 @@ export class OrderService {
       },
       product: true,
       quote: true,
-      buyer: true,
-      seller: true,
+      buyer: { select: { id: true as const } },
+      seller: { select: { id: true as const } },
     };
 
     if (user.role === Role.ADMIN) {
@@ -472,8 +472,8 @@ export class OrderService {
         },
         product: true,
         quote: true,
-        buyer: true,
-        seller: true,
+        buyer: { select: { id: true as const } },
+        seller: { select: { id: true as const } },
         disputes: true,
       },
     });
