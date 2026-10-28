@@ -257,6 +257,9 @@ model User {
   pushSubscriptions PushSubscription[]
   productReports    ProductReport[]
   reviewedProductRevisions ProductRevision[] @relation("ProductRevisionReviewer")
+  createdChargebackCases ChargebackCase[] @relation("ChargebackCreator")
+  uploadedChargebackEvidence ChargebackEvidence[] @relation("ChargebackEvidenceUploader")
+  chargebackEvents           ChargebackEvent[]    @relation("ChargebackEventActor")
 }
 
 model PushSubscription {
@@ -674,6 +677,7 @@ model Order {
 
   chatThreads ChatThread[]
 
+  chargebackCases ChargebackCase[]
   @@index([buyerId])
   @@index([sellerId])
   @@index([productId])
@@ -1147,4 +1151,82 @@ model ProductImportRow {
   @@index([jobId, action])
   @@index([jobId, sku])
   @@index([jobId, processedAt, processingStartedAt])
+}
+
+enum ChargebackStatus {
+  OPEN
+  EVIDENCE_PREPARING
+  EVIDENCE_SUBMITTED
+  UNDER_REVIEW
+  WON
+  LOST
+  CLOSED
+}
+
+model ChargebackCase {
+  id                 String           @id @default(cuid())
+  orderId            String
+  createdById        String
+  provider           PaymentProvider  @default(IYZICO)
+  providerReference  String           @unique
+  iyzicoPaymentId    String
+  disputedAmount     Decimal
+  currency           String           @default("TRY")
+  reason             String
+  description        String?
+  status             ChargebackStatus @default(OPEN)
+  notifiedAt         DateTime
+  responseDueAt      DateTime?
+  evidenceSubmittedAt DateTime?
+  resolvedAt         DateTime?
+  resolutionNote     String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  evidence ChargebackEvidence[]
+  events   ChargebackEvent[]
+
+  order     Order @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  createdBy User  @relation("ChargebackCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([orderId, status])
+  @@index([status, responseDueAt])
+  @@index([iyzicoPaymentId])
+  @@index([createdAt])
+}
+
+model ChargebackEvidence {
+  id          String   @id @default(cuid())
+  chargebackId String
+  uploadedById String
+  category    String
+  cloudinaryPublicId     String
+  cloudinaryResourceType String
+  cloudinaryDeliveryType String @default("authenticated")
+  fileName    String?
+  fileType    String?
+  sha256      String
+  createdAt   DateTime @default(now())
+
+  chargeback ChargebackCase @relation(fields: [chargebackId], references: [id], onDelete: Restrict)
+  uploadedBy User @relation("ChargebackEvidenceUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+
+  @@index([chargebackId, createdAt])
+  @@unique([cloudinaryPublicId, cloudinaryResourceType, cloudinaryDeliveryType])
+}
+
+model ChargebackEvent {
+  id           String   @id @default(cuid())
+  chargebackId String
+  actorId      String
+  action       String
+  previousStatus ChargebackStatus?
+  nextStatus   ChargebackStatus?
+  note         String?
+  createdAt    DateTime @default(now())
+
+  chargeback ChargebackCase @relation(fields: [chargebackId], references: [id], onDelete: Restrict)
+  actor User @relation("ChargebackEventActor", fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([chargebackId, createdAt])
 }

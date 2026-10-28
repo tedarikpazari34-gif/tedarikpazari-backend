@@ -48,6 +48,32 @@ export class NotificationService {
     return notification;
   }
 
+  publishStoredNotification(notification: {
+    id: string;
+    userId: string;
+    type: any;
+    title: string;
+    message: string;
+    link: string | null;
+    isRead: boolean;
+    createdAt: Date;
+  }) {
+    this.chatGateway.emitNotificationToUser(
+      notification.userId,
+      notification,
+    );
+
+    void this.pushService
+      .sendToUser(notification.userId, {
+        title: notification.title,
+        body: notification.message,
+        url: notification.link || '/notifications',
+      })
+      .catch((error) => {
+        console.error('PUSH NOTIFICATION ERROR:', error);
+      });
+  }
+
   async getMyNotifications(userId: string) {
     return this.prisma.notification.findMany({
       where: {
