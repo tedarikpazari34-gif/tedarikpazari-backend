@@ -10,6 +10,7 @@ import { NotificationService } from '../notification/notification.service';
 
 @Injectable()
 export class PayoutService {
+  private readonly manualPayoutsEnabled = false;
   constructor(
     private prisma: PrismaService,
     private notificationService: NotificationService,
@@ -42,6 +43,9 @@ export class PayoutService {
   }
 
   async request(user: any, body: { amount: number; iban: string }) {
+    if (!this.manualPayoutsEnabled) {
+      throw new ForbiddenException('Manuel para çekme kapalıdır. Hakedişler iyzico Marketplace üzerinden yönetilir.');
+    }
     if (user.role !== Role.SELLER) {
       throw new ForbiddenException(
         'Sadece SELLER para çekme talebi oluşturabilir',
@@ -135,6 +139,9 @@ export class PayoutService {
   }
 
   async approve(user: any, payoutRequestId: string) {
+    if (!this.manualPayoutsEnabled) {
+      throw new ForbiddenException('Manuel para çekme onayı kapalıdır.');
+    }
     if (user.role !== Role.ADMIN) {
       throw new ForbiddenException('Sadece ADMIN approve yapabilir');
     }
@@ -220,6 +227,9 @@ export class PayoutService {
   }
 
   async reject(user: any, payoutRequestId: string, note?: string) {
+    if (!this.manualPayoutsEnabled) {
+      throw new ForbiddenException('Manuel para çekme işlemleri kapalıdır.');
+    }
     if (user.role !== Role.ADMIN) {
       throw new ForbiddenException('Sadece ADMIN reject yapabilir');
     }

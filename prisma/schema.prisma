@@ -445,6 +445,7 @@ model Product {
   leadTimeDays  Int?
   stockType     String?
   stockQuantity Int?
+  reservedQuantity Int @default(0)
   vatRate       Int?
 
   rfqEnabled Boolean @default(true)
@@ -487,6 +488,7 @@ model ProductVariant {
   manufacturerCode String?
   price            Decimal?
   stockQuantity    Int?
+  reservedQuantity Int @default(0)
   isActive         Boolean  @default(true)
   sortOrder        Int      @default(0)
   createdAt        DateTime @default(now())
@@ -628,6 +630,11 @@ model Order {
   quoteId          String? @unique
   productId        String?
   quantity         Int?
+  variantId        String?
+  variantName      String?
+  variantSku       String?
+  variantBarcode   String?
+  unitPriceSnapshot Decimal?
   buyerId          String
   sellerId         String
   netAmount        Decimal @default(0)
@@ -642,6 +649,7 @@ model Order {
 
   payoutAmount Decimal     @default(0)
   status       OrderStatus @default(PENDING_PAYMENT)
+  stockReservationStatus StockReservationStatus @default(NONE)
   createdAt    DateTime    @default(now())
 
   shippingTrackingNo String?
@@ -681,6 +689,7 @@ model Order {
   @@index([buyerId])
   @@index([sellerId])
   @@index([productId])
+  @@index([variantId])
   @@index([status])
 }
 
@@ -1151,6 +1160,13 @@ model ProductImportRow {
   @@index([jobId, action])
   @@index([jobId, sku])
   @@index([jobId, processedAt, processingStartedAt])
+}
+
+enum StockReservationStatus {
+  NONE
+  RESERVED
+  COMMITTED
+  RELEASED
 }
 
 enum ChargebackStatus {

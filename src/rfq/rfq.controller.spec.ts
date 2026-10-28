@@ -7,7 +7,11 @@ describe('RfqController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [RfqController],
-    }).compile();
+    })
+      .useMocker((token) =>
+        typeof token === 'function' ? {} : undefined,
+      )
+      .compile();
 
     controller = module.get<RfqController>(RfqController);
   });

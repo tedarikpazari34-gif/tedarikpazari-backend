@@ -7,7 +7,11 @@ describe('DashboardController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [DashboardController],
-    }).compile();
+    })
+      .useMocker((token) =>
+        typeof token === 'function' ? {} : undefined,
+      )
+      .compile();
 
     controller = module.get<DashboardController>(DashboardController);
   });

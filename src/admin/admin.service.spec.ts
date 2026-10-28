@@ -7,7 +7,11 @@ describe('AdminService', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [AdminService],
-    }).compile();
+    })
+      .useMocker((token) =>
+        typeof token === 'function' ? {} : undefined,
+      )
+      .compile();
 
     service = module.get<AdminService>(AdminService);
   });

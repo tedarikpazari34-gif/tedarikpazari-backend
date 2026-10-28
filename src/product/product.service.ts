@@ -573,6 +573,7 @@ export class ProductService {
         leadTimeDays: true,
         stockType: true,
         stockQuantity: true,
+        reservedQuantity: true,
         vatRate: true,
         rfqEnabled: true,
         isActive: true,
@@ -601,6 +602,9 @@ export class ProductService {
         variants: {
           where: { isActive: true },
           orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+        },
+        _count: {
+          select: { variants: true },
         },
         attributeValues: {
           include: {
@@ -634,7 +638,32 @@ export class ProductService {
       throw new NotFoundException('Ürün bulunamadı');
     }
 
-    return this.applyTranslation(product);
+    const translated = this.applyTranslation(product);
+    const { _count, reservedQuantity, ...publicProduct } = translated;
+
+    return {
+      ...publicProduct,
+      hasVariants: product._count.variants > 0,
+      availableStock:
+        product.stockQuantity === null
+          ? null
+          : Math.max(
+              0,
+              product.stockQuantity - product.reservedQuantity,
+            ),
+      variants: product.variants.map(
+        ({ reservedQuantity, ...variant }) => ({
+          ...variant,
+          availableStock:
+            variant.stockQuantity === null
+              ? null
+              : Math.max(
+                  0,
+                  variant.stockQuantity - reservedQuantity,
+                ),
+        }),
+      ),
+    };
   }
 
   async reportProduct(
@@ -1105,8 +1134,19 @@ export class ProductService {
           ? this.catalogService.normalizeVariants(body.variants)
           : undefined;
 
-      await tx.product.update({
-        where: { id },
+      const stockUpdate = await tx.product.updateMany({
+        where: {
+          id,
+          sellerId: user.companyId,
+          ...(body.stockQuantity !== undefined &&
+          body.stockQuantity !== null
+            ? {
+                reservedQuantity: {
+                  lte: Number(body.stockQuantity),
+                },
+              }
+            : {}),
+        },
         data: {
           ...(body.categoryId !== undefined
             ? { categoryId: effectiveCategoryId }
@@ -1158,6 +1198,12 @@ export class ProductService {
         },
       });
 
+      if (stockUpdate.count !== 1) {
+        throw new BadRequestException(
+          'Ürün güncellenemedi veya stok mevcut rezervasyonlardan düşük',
+        );
+      }
+
       if (attributeValues !== undefined) {
         await tx.productAttributeValue.deleteMany({
           where: { productId: id },
@@ -1174,6 +1220,34 @@ export class ProductService {
       }
 
       if (variants !== undefined) {
+        const existingVariantOrder = await tx.order.findFirst({
+          where: {
+            productId: id,
+            variantId: { not: null },
+          },
+          select: { id: true },
+        });
+
+        if (existingVariantOrder) {
+          throw new BadRequestException(
+            'Sipariş geçmişi olan ürünün varyantları silinip yeniden oluşturulamaz',
+          );
+        }
+
+        const reservedVariant = await tx.productVariant.findFirst({
+          where: {
+            productId: id,
+            reservedQuantity: { gt: 0 },
+          },
+          select: { id: true },
+        });
+
+        if (reservedVariant) {
+          throw new BadRequestException(
+            'Stok rezervasyonu bulunan varyantlar silinemez',
+          );
+        }
+
         await tx.productVariant.deleteMany({
           where: { productId: id },
         });

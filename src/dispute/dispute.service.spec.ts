@@ -7,7 +7,11 @@ describe('DisputeService', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [DisputeService],
-    }).compile();
+    })
+      .useMocker((token) =>
+        typeof token === 'function' ? {} : undefined,
+      )
+      .compile();
 
     service = module.get<DisputeService>(DisputeService);
   });

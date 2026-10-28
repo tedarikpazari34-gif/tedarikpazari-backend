@@ -1383,22 +1383,53 @@ export class ProductImportService {
             );
           }
 
-          await tx.product.update({
-            where: { id: existing.id },
+          const productStockUpdate = await tx.product.updateMany({
+            where: {
+              id: existing.id,
+              ...(normalized.stockQuantity === null
+                ? {}
+                : {
+                    reservedQuantity: {
+                      lte: normalized.stockQuantity,
+                    },
+                  }),
+            },
             data: {
               basePrice: normalized.basePrice,
               stockQuantity: normalized.stockQuantity,
             },
           });
 
+          if (productStockUpdate.count !== 1) {
+            throw new BadRequestException(
+              'Excel/XML stok miktarı mevcut ürün rezervasyonlarından düşük olamaz',
+            );
+          }
+
           for (const variantUpdate of variantPriceStockUpdates) {
-            await tx.productVariant.update({
-              where: { id: variantUpdate.id },
+            const variantStockUpdate = await tx.productVariant.updateMany({
+              where: {
+                id: variantUpdate.id,
+                productId: existing.id,
+                ...(variantUpdate.stockQuantity === null
+                  ? {}
+                  : {
+                      reservedQuantity: {
+                        lte: variantUpdate.stockQuantity,
+                      },
+                    }),
+              },
               data: {
                 price: variantUpdate.price,
                 stockQuantity: variantUpdate.stockQuantity,
               },
             });
+
+            if (variantStockUpdate.count !== 1) {
+              throw new BadRequestException(
+                'Excel/XML varyant stoğu mevcut rezervasyonlardan düşük olamaz',
+              );
+            }
           }
 
           await tx.productImportRow.update({
@@ -1508,6 +1539,36 @@ export class ProductImportService {
       }
 
     if (normalized.variantsProvided) {
+      if (existing) {
+        const existingVariantOrder = await tx.order.findFirst({
+          where: {
+            productId,
+            variantId: { not: null },
+          },
+          select: { id: true },
+        });
+
+        if (existingVariantOrder) {
+          throw new BadRequestException(
+            'Sipariş geçmişi olan ürünün varyantları Excel/XML ile silinip yeniden oluşturulamaz',
+          );
+        }
+
+        const reservedVariant = await tx.productVariant.findFirst({
+          where: {
+            productId,
+            reservedQuantity: { gt: 0 },
+          },
+          select: { id: true },
+        });
+
+        if (reservedVariant) {
+          throw new BadRequestException(
+            'Stok rezervasyonu bulunan varyantlar Excel/XML ile silinip yeniden oluşturulamaz',
+          );
+        }
+      }
+
       await tx.productVariant.deleteMany({
         where: { productId },
       });

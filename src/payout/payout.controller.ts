@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   Post,
@@ -40,7 +41,7 @@ export class PayoutController {
     @Req() req: any,
     @Body() body: { amount: number; iban: string },
   ) {
-    return this.payoutService.request(req.user, body);
+    throw new ForbiddenException('Manuel para çekme kapalıdır. Satıcı hakedişleri iyzico Marketplace üzerinden yönetilir.');
   }
 
   @UseGuards(JwtAuthGuard, AdminGuard)
@@ -54,7 +55,7 @@ export class PayoutController {
   @Post(':id/approve')
   @ApiOperation({ summary: 'Approve payout request (ADMIN)' })
   approve(@Req() req: any, @Param('id') payoutId: string) {
-    return this.payoutService.approve(req.user, payoutId);
+    throw new ForbiddenException('Manuel hakediş onayı kapalıdır. Satıcı ödemeleri iyzico Marketplace üzerinden yönetilir.');
   }
 
   @UseGuards(JwtAuthGuard, AdminGuard)
@@ -65,6 +66,6 @@ export class PayoutController {
     @Param('id') payoutId: string,
     @Body() body: { note?: string },
   ) {
-    return this.payoutService.reject(req.user, payoutId, body?.note);
+    throw new ForbiddenException('Manuel para çekme işlemleri kapalıdır. Geçmiş talepler finansal mutabakatla değerlendirilmelidir.');
   }
 }

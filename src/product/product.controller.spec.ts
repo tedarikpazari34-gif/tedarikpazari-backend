@@ -15,7 +15,11 @@ describe('ProductController', () => {
         { provide: ProductImportService, useValue: {} },
         { provide: ProductXmlFeedService, useValue: {} },
       ],
-    }).compile();
+    })
+      .useMocker((token) =>
+        typeof token === 'function' ? {} : undefined,
+      )
+      .compile();
 
     controller = module.get<ProductController>(ProductController);
   });

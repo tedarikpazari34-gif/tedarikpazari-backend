@@ -66,6 +66,7 @@ describe('ProductImportService moderation security', () => {
       findUniqueOrThrow: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     productRevision: {
       findFirst: jest.fn(),
@@ -74,10 +75,15 @@ describe('ProductImportService moderation security', () => {
       deleteMany: jest.fn(),
       createMany: jest.fn(),
     },
+    order: {
+      findFirst: jest.fn(),
+    },
     productVariant: {
+      findFirst: jest.fn(),
       deleteMany: jest.fn(),
       createMany: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     productAttributeValue: {
       deleteMany: jest.fn(),
@@ -122,6 +128,8 @@ describe('ProductImportService moderation security', () => {
     tx.product.create.mockResolvedValue({ id: 'new-product-1' });
     tx.product.update.mockResolvedValue({ id: productId });
     tx.productRevision.findFirst.mockResolvedValue(null);
+    tx.order.findFirst.mockResolvedValue(null);
+    tx.productVariant.findFirst.mockResolvedValue(null);
 
     catalog.resolveBrandByName.mockResolvedValue(null);
     revision.savePendingRevision.mockResolvedValue({ id: 'revision-1' });
@@ -171,8 +179,11 @@ describe('ProductImportService moderation security', () => {
       }),
     );
 
-    expect(tx.product.update).toHaveBeenCalledWith({
-      where: { id: productId },
+    expect(tx.product.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: productId,
+        reservedQuantity: { lte: 100 },
+      },
       data: {
         basePrice: 90,
         stockQuantity: 100,
@@ -253,8 +264,12 @@ describe('ProductImportService moderation security', () => {
 
     expect(tx.productVariant.deleteMany).not.toHaveBeenCalled();
     expect(tx.productVariant.createMany).not.toHaveBeenCalled();
-    expect(tx.productVariant.update).toHaveBeenCalledWith({
-      where: { id: 'variant-1' },
+    expect(tx.productVariant.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'variant-1',
+        productId,
+        reservedQuantity: { lte: 40 },
+      },
       data: {
         price: 99,
         stockQuantity: 40,
@@ -319,6 +334,111 @@ describe('ProductImportService moderation security', () => {
   });
 
 
+
+  it('ürün rezervasyonundan düşük stok güncellemesini reddeder', async () => {
+    tx.product.findUnique
+      .mockResolvedValueOnce({
+        id: productId,
+        sku: normalized.sku,
+        categoryId: null,
+      })
+      .mockResolvedValueOnce({ isApproved: true });
+
+    tx.product.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    const incoming = {
+      ...normalized,
+      title: current.title,
+      description: current.description,
+      stockQuantity: 20,
+    };
+
+    await expect(process({
+      ...row(ProductImportRowAction.UPDATE, productId),
+      normalized: incoming,
+    })).rejects.toThrow(
+      'Excel/XML stok miktarı mevcut ürün rezervasyonlarından düşük olamaz',
+    );
+
+    expect(tx.product.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: productId,
+        reservedQuantity: { lte: 20 },
+      },
+      data: {
+        basePrice: 90,
+        stockQuantity: 20,
+      },
+    });
+
+    expect(tx.productImportRow.update).not.toHaveBeenCalled();
+  });
+
+  it('varyant rezervasyonundan düşük stok güncellemesini reddeder', async () => {
+    tx.product.findUnique
+      .mockResolvedValueOnce({
+        id: productId,
+        sku: normalized.sku,
+        categoryId: null,
+      })
+      .mockResolvedValueOnce({ isApproved: true });
+
+    tx.product.findUniqueOrThrow.mockResolvedValue({
+      ...current,
+      variants: [{
+        id: 'variant-1',
+        name: '80 Yaprak',
+        sku: 'SKU-001-80',
+        barcode: null,
+        manufacturerCode: 'TEST-80',
+        price: 95,
+        stockQuantity: 25,
+        isActive: true,
+        sortOrder: 0,
+      }],
+    });
+
+    tx.productVariant.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    const incoming = {
+      ...normalized,
+      title: current.title,
+      description: current.description,
+      variantsProvided: true,
+      variants: [{
+        name: '80 Yaprak',
+        sku: 'SKU-001-80',
+        barcode: null,
+        manufacturerCode: 'TEST-80',
+        price: 99,
+        stockQuantity: 10,
+        isActive: true,
+        sortOrder: 0,
+      }],
+    };
+
+    await expect(process({
+      ...row(ProductImportRowAction.UPDATE, productId),
+      normalized: incoming,
+    })).rejects.toThrow(
+      'Excel/XML varyant stoğu mevcut rezervasyonlardan düşük olamaz',
+    );
+
+    expect(tx.productVariant.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'variant-1',
+        productId,
+        reservedQuantity: { lte: 10 },
+      },
+      data: {
+        price: 99,
+        stockQuantity: 10,
+      },
+    });
+
+    expect(tx.productImportRow.update).not.toHaveBeenCalled();
+  });
+
   it('yalnızca fiyat ve stok değişikliğinde revizyon oluşturmaz', async () => {
     tx.product.findUnique
       .mockResolvedValueOnce({
@@ -343,8 +463,11 @@ describe('ProductImportService moderation security', () => {
 
     expect(revision.savePendingRevision).not.toHaveBeenCalled();
 
-    expect(tx.product.update).toHaveBeenCalledWith({
-      where: { id: productId },
+    expect(tx.product.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: productId,
+        reservedQuantity: { lte: 250 },
+      },
       data: {
         basePrice: 125,
         stockQuantity: 250,
@@ -353,6 +476,43 @@ describe('ProductImportService moderation security', () => {
 
     expect(tx.productImportRow.update).toHaveBeenCalledTimes(1);
   });
+
+  it('onaysız mevcut ürünün varyantları sipariş geçmişi varsa silinemez', async () => {
+    tx.order.findFirst.mockResolvedValue({ id: 'order-1' });
+
+    await expect(
+      process({
+        ...row(ProductImportRowAction.UPDATE, productId),
+        normalized: {
+          ...normalized,
+          variantsProvided: true,
+          variants: [],
+        },
+      }),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(tx.productVariant.deleteMany).not.toHaveBeenCalled();
+    expect(tx.productVariant.createMany).not.toHaveBeenCalled();
+  });
+
+  it('onaysız mevcut ürünün varyantları stok rezervasyonu varsa silinemez', async () => {
+    tx.productVariant.findFirst.mockResolvedValue({ id: 'variant-1' });
+
+    await expect(
+      process({
+        ...row(ProductImportRowAction.UPDATE, productId),
+        normalized: {
+          ...normalized,
+          variantsProvided: true,
+          variants: [],
+        },
+      }),
+    ).rejects.toThrow(BadRequestException);
+
+    expect(tx.productVariant.deleteMany).not.toHaveBeenCalled();
+    expect(tx.productVariant.createMany).not.toHaveBeenCalled();
+  });
+
 
   it('boş SKU olan eski ürünü ID ile eşleştirir, yeni üründe SKU ister', async () => {
     const raw = {
@@ -413,6 +573,7 @@ describe('ProductImportService moderation security', () => {
     expect(newResult[0].errors).toContain('SKU zorunludur');
   });
 
+
   it('SKU boş eski ürünün güncellemesinde SKU alanını değiştirmez', async () => {
     tx.product.findFirst.mockResolvedValue({
       id: productId,
@@ -441,41 +602,39 @@ describe('ProductImportService moderation security', () => {
     }
   });
 
-
   it('Excel dışa aktarma Ürün ID başlığını içe aktarırken tanır', () => {
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Ürünler');
+      const workbook = new ExcelJS.Workbook();
+      const sheet = workbook.addWorksheet('Ürünler');
 
-    sheet.addRow(['Ürün ID (Değiştirmeyin)', 'SKU', 'Ürün Adı']);
-    sheet.addRow([productId, '', 'Eski Ürün']);
+      sheet.addRow(['Ürün ID (Değiştirmeyin)', 'SKU', 'Ürün Adı']);
+      sheet.addRow([productId, '', 'Eski Ürün']);
 
-    const headers = (service as any).getHeaderMap(sheet);
-    expect(headers.get(1)).toBe('productId');
+      const headers = (service as any).getHeaderMap(sheet);
+      expect(headers.get(1)).toBe('productId');
 
-    const rows = (service as any).readExcelRows(sheet, headers);
-    expect(rows).toHaveLength(1);
-    expect(rows[0].raw.productId).toBe(productId);
-  });
-
+      const rows = (service as any).readExcelRows(sheet, headers);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].raw.productId).toBe(productId);
+    });
 
   it('Excel açıklamasındaki gereksiz boşluk güncelleme oluşturmamalı', () => {
-    const incoming = {
-      ...normalized,
-      title: current.title,
-      description: 'Çöp kovası Klik no:0 (1,5lt)',
-    };
+      const incoming = {
+        ...normalized,
+        title: current.title,
+        description: 'Çöp kovası Klik no:0 (1,5lt)',
+      };
 
-    const existing = {
-      ...current,
-      brand: null,
-      basePrice: normalized.basePrice,
-      stockQuantity: normalized.stockQuantity,
-      description: 'Çöp kovası Klik no:0 (1,5lt) ',
-    };
+      const existing = {
+        ...current,
+        brand: null,
+        basePrice: normalized.basePrice,
+        stockQuantity: normalized.stockQuantity,
+        description: 'Çöp kovası Klik no:0 (1,5lt) ',
+      };
 
-    expect(
-      (service as any).productMatchesNormalized(existing, incoming),
-    ).toBe(true);
-  });
+      expect(
+        (service as any).productMatchesNormalized(existing, incoming),
+      ).toBe(true);
+    });
 
 });

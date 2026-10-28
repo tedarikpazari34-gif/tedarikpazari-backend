@@ -6,8 +6,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
-import { DisputeStatus, LedgerType, OrderStatus, Prisma, Role } from '@prisma/client';
+import { DisputeStatus, LedgerType, OrderStatus, PaymentStatus, Prisma, Role } from '@prisma/client';
 import { NotificationService } from '../notification/notification.service';
 import { MailService } from '../mail/mail.service';
 import { ShipOrderDto } from './dto/ship-order.dto';
@@ -58,49 +59,70 @@ export class OrderService {
       throw new ForbiddenException('Sadece BUYER sipariş oluşturabilir');
     }
 
-    const product = await this.prisma.product.findUnique({
-      where: { id: body.productId },
-      include: {
-        seller: true,
-        variants: {
-          where: { isActive: true },
-          select: { id: true },
+    const { product, order } = await this.prisma.$transaction(async (tx) => {
+      // Önce ana ürünü, sonra seçilen varyantı kilitle.
+      // Böylece fiyat ve stok aynı işlem içinde doğrulanır.
+      await tx.$queryRaw`
+        SELECT "id" FROM "Product"
+        WHERE "id" = ${body.productId}
+        FOR UPDATE
+      `;
+
+      if (body.variantId) {
+        await tx.$queryRaw`
+          SELECT "id" FROM "ProductVariant"
+          WHERE "id" = ${body.variantId}
+            AND "productId" = ${body.productId}
+          FOR UPDATE
+        `;
+      }
+
+      const product = await tx.product.findUnique({
+        where: { id: body.productId },
+        include: {
+          seller: true,
+          variants: {
+            select: {
+              id: true,
+              name: true,
+              sku: true,
+              barcode: true,
+              price: true,
+              stockQuantity: true,
+              reservedQuantity: true,
+              isActive: true,
+            },
+          },
         },
-      },
-    });
+      });
 
-    if (!product) {
-      throw new NotFoundException('Ürün bulunamadı');
-    }
+      if (!product) {
+        throw new NotFoundException('Ürün bulunamadı');
+      }
 
-    if (!product.isActive || !product.isApproved) {
-      throw new BadRequestException('Bu ürün satışa açık değil');
-    }
+      if (!product.isActive || !product.isApproved) {
+        throw new BadRequestException('Bu ürün satışa açık değil');
+      }
 
-    if (product.sellerId === user.companyId) {
-      throw new BadRequestException('Kendi ürününüzü satın alamazsınız');
-    }
+      if (product.sellerId === user.companyId) {
+        throw new BadRequestException('Kendi ürününüzü satın alamazsınız');
+      }
 
-    if (product.variants.length > 0) {
-      throw new BadRequestException(
-        'Bu ürün varyant seçimi gerektiriyor. Varyant seçmeden sipariş oluşturulamaz',
-      );
-    }
+      if (product.variants.length > 0 && !body.variantId) {
+        throw new BadRequestException(
+          'Bu ürün için varyant seçimi zorunludur',
+        );
+      }
 
-    if (
-      product.stockQuantity !== null &&
-      body.quantity > product.stockQuantity
-    ) {
-      throw new BadRequestException(
-        `Yetersiz stok. Mevcut stok: ${product.stockQuantity} ${product.unitType}`,
-      );
-    }
+      const selectedVariant = body.variantId
+        ? product.variants.find((variant) => variant.id === body.variantId)
+        : undefined;
 
-    if (body.quantity < product.moq) {
-      throw new BadRequestException(
-        `Minimum sipariş miktarı ${product.moq} ${product.unitType}`,
-      );
-    }
+      if (body.variantId && (!selectedVariant || !selectedVariant.isActive)) {
+        throw new BadRequestException(
+          'Seçilen varyant bulunamadı veya satışa kapalı',
+        );
+      }
 
     if (
       !Number.isInteger(body.quantity) ||
@@ -111,64 +133,146 @@ export class OrderService {
       );
     }
 
-    const unitPrice = new Prisma.Decimal(product.basePrice);
-    const quantity = new Prisma.Decimal(body.quantity);
+      const totalStock = selectedVariant
+        ? selectedVariant.stockQuantity
+        : product.stockQuantity;
 
-    const totalAmount = unitPrice
-      .mul(quantity)
-      .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+      const reservedStock = selectedVariant
+        ? selectedVariant.reservedQuantity
+        : product.reservedQuantity;
 
-    const vatRate = product.vatRate ?? 0;
+      const availableStock =
+        totalStock === null
+          ? null
+          : Math.max(0, totalStock - reservedStock);
 
-    if (vatRate < 0 || vatRate > 100) {
-      throw new BadRequestException('Geçersiz KDV oranı');
-    }
+      if (availableStock !== null && body.quantity > availableStock) {
+        throw new BadRequestException(
+          `Yetersiz stok. Mevcut stok: ${availableStock} ${product.unitType}`,
+        );
+      }
 
-    const vatDivisor = new Prisma.Decimal(1).add(
-      new Prisma.Decimal(vatRate).div(100),
-    );
+      if (body.quantity < product.moq) {
+        throw new BadRequestException(
+          `Minimum sipariş miktarı ${product.moq} ${product.unitType}`,
+        );
+      }
 
-    const netAmount = totalAmount
-      .div(vatDivisor)
-      .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+      const quantityStep = Math.max(Number(product.quantityStep || 1), 1);
 
-    const vatAmount = totalAmount
-      .minus(netAmount)
-      .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+      if ((body.quantity - product.moq) % quantityStep !== 0) {
+        throw new BadRequestException(
+          `Sipariş miktarı ${product.moq} değerinden başlayarak ${quantityStep} ${product.unitType} adımlarla artırılmalıdır`,
+        );
+      }
 
-    if (totalAmount.lte(0)) {
-      throw new BadRequestException('Sipariş tutarı 0 olamaz');
-    }
+      const unitPrice = new Prisma.Decimal(
+        selectedVariant?.price ?? product.basePrice,
+      );
+      const quantity = new Prisma.Decimal(body.quantity);
 
-    const commissionAmount = totalAmount
-      .mul(new Prisma.Decimal(0.03))
-      .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+      const totalAmount = unitPrice
+        .mul(quantity)
+        .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
 
-    const escrowAmount = totalAmount;
-    const payoutAmount = totalAmount
-      .minus(commissionAmount)
-      .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+      if (
+        body.expectedTotalAmount !== undefined &&
+        !new Prisma.Decimal(body.expectedTotalAmount).equals(totalAmount)
+      ) {
+        throw new BadRequestException(
+          'Ürün fiyatı değişmiş. Sepeti güncelleyerek tekrar deneyin.',
+        );
+      }
 
-    const order = await this.prisma.order.create({
-      data: {
-        productId: product.id,
-        quantity: body.quantity,
-        buyerId: user.companyId,
-        sellerId: product.sellerId,
-        netAmount,
-        vatRate,
-        vatAmount,
-        totalAmount,
-        commissionAmount,
-        escrowAmount,
-        payoutAmount,
-        status: OrderStatus.PENDING_PAYMENT,
-      },
-      include: {
-        product: true,
-        buyer: true,
-        seller: true,
-      },
+      const vatRate = product.vatRate ?? 0;
+
+      if (vatRate < 0 || vatRate > 100) {
+        throw new BadRequestException('Geçersiz KDV oranı');
+      }
+
+      const vatDivisor = new Prisma.Decimal(1).add(
+        new Prisma.Decimal(vatRate).div(100),
+      );
+
+      const netAmount = totalAmount
+        .div(vatDivisor)
+        .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+
+      const vatAmount = totalAmount
+        .minus(netAmount)
+        .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+
+      if (totalAmount.lte(0)) {
+        throw new BadRequestException('Sipariş tutarı 0 olamaz');
+      }
+
+      const commissionAmount = totalAmount
+        .mul(new Prisma.Decimal(0.03))
+        .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+
+      const escrowAmount = totalAmount;
+      const payoutAmount = totalAmount
+        .minus(commissionAmount)
+        .toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP);
+
+      const reservedCount = selectedVariant
+        ? await tx.$executeRaw`
+            UPDATE "ProductVariant"
+            SET "reservedQuantity" = "reservedQuantity" + ${body.quantity}
+            WHERE "id" = ${selectedVariant.id}
+              AND "productId" = ${product.id}
+              AND "isActive" = true
+              AND (
+                "stockQuantity" IS NULL
+                OR "stockQuantity" - "reservedQuantity" >= ${body.quantity}
+              )
+          `
+        : await tx.$executeRaw`
+            UPDATE "Product"
+            SET "reservedQuantity" = "reservedQuantity" + ${body.quantity}
+            WHERE "id" = ${product.id}
+              AND "isActive" = true
+              AND "isApproved" = true
+              AND (
+                "stockQuantity" IS NULL
+                OR "stockQuantity" - "reservedQuantity" >= ${body.quantity}
+              )
+          `;
+
+      if (reservedCount !== 1) {
+        throw new BadRequestException(
+          'Yeterli satılabilir stok bulunmuyor',
+        );
+      }
+
+      const order = await tx.order.create({
+        data: {
+          productId: product.id,
+          quantity: body.quantity,
+          variantId: selectedVariant?.id ?? null,
+          variantName: selectedVariant?.name ?? null,
+          variantSku: selectedVariant?.sku ?? null,
+          variantBarcode: selectedVariant?.barcode ?? null,
+          unitPriceSnapshot: unitPrice,
+          buyerId: user.companyId,
+          sellerId: product.sellerId,
+          netAmount,
+          vatRate,
+          vatAmount,
+          totalAmount,
+          commissionAmount,
+          escrowAmount,
+          payoutAmount,
+          status: OrderStatus.PENDING_PAYMENT,
+          stockReservationStatus: 'RESERVED',
+        },
+        include: {
+          product: true,
+          buyer: true,
+          seller: true,
+        },
+      });
+      return { product, order };
     });
 
     const sellerUser = await this.prisma.user.findFirst({
@@ -390,32 +494,190 @@ export class OrderService {
     return order;
   }
 
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  async expireUnpaidReservations() {
+    const cutoff = new Date(Date.now() - 30 * 60 * 1000);
+
+    const expiredOrders = await this.prisma.order.findMany({
+      where: {
+        status: OrderStatus.PENDING_PAYMENT,
+        stockReservationStatus: 'RESERVED',
+        createdAt: { lte: cutoff },
+        iyzicoPaymentId: null,
+        iyzicoPaidAt: null,
+        paymentAttempts: {
+          none: {
+            status: { not: PaymentStatus.FAILED },
+          },
+        },
+      },
+      select: {
+        id: true,
+        buyerId: true,
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 100,
+    });
+
+    for (const order of expiredOrders) {
+      try {
+        // İptal metodu ödeme kilidini alır ve tüm kontrolleri
+        // aynı veritabanı işlemi içinde yeniden gerçekleştirir.
+        await this.cancel(
+          { role: Role.BUYER, companyId: order.buyerId },
+          order.id,
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Süresi dolan rezervasyon güvenle iptal edilemedi. orderId=${order.id}`,
+        );
+      }
+    }
+  }
+
   async cancel(user: any, orderId: string) {
-    if (user.role !== Role.BUYER) {
+    if (!user || user.role !== Role.BUYER) {
       throw new ForbiddenException('Sadece BUYER sipariş iptal edebilir');
     }
 
-    const order = await this.prisma.order.findUnique({
-      where: { id: orderId },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      // Ödeme başlatmayla aynı sipariş kilidini kullan.
+      await tx.$queryRaw`
+        SELECT pg_advisory_xact_lock(
+          hashtextextended(${'iyzico-init:' + orderId}, 0)
+        )::text
+      `;
 
-    if (!order) {
-      throw new NotFoundException('Order not found');
-    }
+      const order = await tx.order.findUnique({
+        where: { id: orderId },
+        select: {
+          id: true,
+          buyerId: true,
+          status: true,
+          iyzicoPaymentId: true,
+          iyzicoPaidAt: true,
+          productId: true,
+          variantId: true,
+          quantity: true,
+          stockReservationStatus: true,
+        },
+      });
 
-    if (order.buyerId !== user.companyId) {
-      throw new ForbiddenException('Bu order size ait değil');
-    }
+      if (!order) {
+        throw new NotFoundException('Order not found');
+      }
 
-    if (order.status !== OrderStatus.PENDING_PAYMENT) {
-      throw new BadRequestException(
-        'Sadece ödeme bekleyen siparişler iptal edilebilir',
-      );
-    }
+      if (order.buyerId !== user.companyId) {
+        throw new ForbiddenException('Bu order size ait değil');
+      }
 
-    return this.prisma.order.update({
-      where: { id: orderId },
-      data: { status: OrderStatus.CANCELLED },
+      if (order.status !== OrderStatus.PENDING_PAYMENT) {
+        throw new BadRequestException(
+          'Sadece ödeme bekleyen siparişler iptal edilebilir',
+        );
+      }
+
+      if (order.iyzicoPaymentId || order.iyzicoPaidAt) {
+        throw new BadRequestException(
+          'Ödeme kaydı bulunan sipariş için mutabakat gerekli',
+        );
+      }
+
+      // FAILED dışındaki her deneme iptali durdurur.
+      // REVIEW veya sonuçlanmamış ödeme sırasında stok serbest bırakılamaz.
+      const paymentAttempt = await tx.paymentAttempt.findFirst({
+        where: {
+          orderId,
+          status: { not: PaymentStatus.FAILED },
+        },
+        select: { id: true },
+      });
+
+      if (paymentAttempt) {
+        throw new BadRequestException(
+          'Devam eden veya sonucu belirsiz ödeme var; iptal öncesi mutabakat gerekli',
+        );
+      }
+
+      const hasReservation =
+        order.stockReservationStatus === 'RESERVED';
+
+      if (
+        order.stockReservationStatus === 'COMMITTED' ||
+        order.stockReservationStatus === 'RELEASED'
+      ) {
+        throw new BadRequestException(
+          'Sipariş stok durumu iptal için uygun değil',
+        );
+      }
+
+      if (
+        hasReservation &&
+        (!order.productId ||
+          !Number.isInteger(order.quantity) ||
+          !order.quantity ||
+          order.quantity <= 0)
+      ) {
+        throw new BadRequestException(
+          'Stok rezervasyonu bilgileri geçersiz',
+        );
+      }
+
+      // Ödeme callback'iyle yarış halinde koşullu durum geçişi.
+      const updated = await tx.order.updateMany({
+        where: {
+          id: orderId,
+          status: OrderStatus.PENDING_PAYMENT,
+        },
+        data: {
+          status: OrderStatus.CANCELLED,
+          ...(hasReservation
+            ? { stockReservationStatus: 'RELEASED' as const }
+            : {}),
+        },
+      });
+
+      if (updated.count !== 1) {
+        throw new BadRequestException(
+          'Sipariş durumu değişti; iptal gerçekleştirilemedi',
+        );
+      }
+
+      if (hasReservation) {
+        const quantity = order.quantity!;
+        const productId = order.productId!;
+
+        const released = order.variantId
+          ? await tx.productVariant.updateMany({
+              where: {
+                id: order.variantId,
+                productId,
+                reservedQuantity: { gte: quantity },
+              },
+              data: {
+                reservedQuantity: { decrement: quantity },
+              },
+            })
+          : await tx.product.updateMany({
+              where: {
+                id: productId,
+                reservedQuantity: { gte: quantity },
+              },
+              data: {
+                reservedQuantity: { decrement: quantity },
+              },
+            });
+
+        if (released.count !== 1) {
+          throw new BadRequestException(
+            'Stok rezervasyonu güvenle serbest bırakılamadı',
+          );
+        }
+      }
+
+      return tx.order.findUniqueOrThrow({
+        where: { id: orderId },
+      });
     });
   }
 

@@ -7,7 +7,11 @@ describe('RfqService', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [RfqService],
-    }).compile();
+    })
+      .useMocker((token) =>
+        typeof token === 'function' ? {} : undefined,
+      )
+      .compile();
 
     service = module.get<RfqService>(RfqService);
   });

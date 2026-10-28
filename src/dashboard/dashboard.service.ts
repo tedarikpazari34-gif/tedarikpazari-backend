@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable } from '@nestjs/common';
 
 import {
   CompanyStatus,
+  Prisma,
   OrderStatus,
   Role,
   ShippingOrderStatus,
@@ -170,6 +171,16 @@ export class DashboardService {
           totalAmount: true,
           payoutAmount: true,
           createdAt: true,
+          paymentTransactions: {
+            select: {
+              status: true,
+              iyzicoApprovedAt: true,
+              iyzicoApprovalPendingAt: true,
+              iyzicoRefundPendingAt: true,
+              iyzicoRefundedAt: true,
+              iyzicoRefundedAmount: true,
+            },
+          },
         },
         orderBy: { createdAt: 'desc' },
       }),
@@ -197,6 +208,36 @@ export class DashboardService {
       0,
     );
 
+    let pendingIyzicoPayout = new Prisma.Decimal(0);
+    let approvedIyzicoPayout = new Prisma.Decimal(0);
+
+    for (const order of revenueOrders) {
+      const transactions = order.paymentTransactions ?? [];
+
+      if (transactions.length !== 1) continue;
+
+      const payment = transactions[0];
+
+      if (
+        payment.status !== 'SUCCESS' ||
+        payment.iyzicoRefundPendingAt ||
+        payment.iyzicoRefundedAt ||
+        new Prisma.Decimal(payment.iyzicoRefundedAmount ?? 0).gt(0)
+      ) {
+        continue;
+      }
+
+      const amount = new Prisma.Decimal(order.payoutAmount);
+
+      if (!amount.isFinite() || amount.lt(0)) continue;
+
+      if (payment.iyzicoApprovedAt && !payment.iyzicoApprovalPendingAt) {
+        approvedIyzicoPayout = approvedIyzicoPayout.plus(amount);
+      } else if (!payment.iyzicoApprovedAt) {
+        pendingIyzicoPayout = pendingIyzicoPayout.plus(amount);
+      }
+    }
+
     return {
       activeProducts,
       totalProducts,
@@ -217,11 +258,19 @@ export class DashboardService {
       totalOrders: orders.length,
       grossSales,
       totalPayout,
+      pendingIyzicoPayout: pendingIyzicoPayout.toFixed(2),
+      approvedIyzicoPayout: approvedIyzicoPayout.toFixed(2),
 
       walletAvailable: Number(wallet?.available || 0),
       walletLocked: Number(wallet?.locked || 0),
 
-      recentOrders: orders.slice(0, 5),
+      recentOrders: orders.slice(0, 5).map((order) => ({
+        id: order.id,
+        status: order.status,
+        totalAmount: order.totalAmount,
+        payoutAmount: order.payoutAmount,
+        createdAt: order.createdAt,
+      })),
     };
   }
 

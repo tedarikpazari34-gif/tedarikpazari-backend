@@ -60,6 +60,9 @@ export class PaymentsService {
       price: result.price ?? null,
       paidPrice: result.paidPrice ?? null,
       currency: result.currency ?? null,
+      installment: result.installment ?? null,
+      merchantCommissionRateAmount:
+        result.merchantCommissionRateAmount ?? null,
       fraudStatus: result.fraudStatus ?? null,
       itemTransactions: Array.isArray(result.itemTransactions)
         ? result.itemTransactions.map((item: any) => ({
@@ -760,6 +763,7 @@ export class PaymentsService {
       conversationId: request.conversationId,
       price: request.price,
       paidPrice: request.paidPrice,
+      installmentPolicy: 'IYZICO_CHECKOUT',
       currency: request.currency,
       basketId: request.basketId,
       paymentGroup: request.paymentGroup,
@@ -784,7 +788,11 @@ export class PaymentsService {
 
       const currentOrder = await tx.order.findUnique({
         where: { id: order.id },
-        select: { status: true },
+        select: {
+          status: true,
+          createdAt: true,
+          stockReservationStatus: true,
+        },
       });
 
       if (
@@ -792,6 +800,21 @@ export class PaymentsService {
         currentOrder.status !== OrderStatus.PENDING_PAYMENT
       ) {
         throw new BadRequestException('Order ödeme beklemiyor');
+      }
+
+      if (currentOrder.stockReservationStatus !== 'RESERVED') {
+        throw new BadRequestException(
+          'Bu siparişin stok rezervasyonu doğrulanamadı. Güvenli ödeme için yeni sipariş oluşturun.',
+        );
+      }
+
+      if (
+        currentOrder.stockReservationStatus === 'RESERVED' &&
+        currentOrder.createdAt.getTime() <= Date.now() - 30 * 60 * 1000
+      ) {
+        throw new BadRequestException(
+          'Rezervasyon süresi dolmuş. Yeni sipariş oluşturmanız gerekiyor.',
+        );
       }
 
       const activeAttempt = await tx.paymentAttempt.findFirst({
@@ -1224,6 +1247,17 @@ export class PaymentsService {
       );
     }
 
+    // REVIEW, iyzico tarafinda tahsil edilmis bir odeme olabilir.
+    // Saglayicidan tahsilat olmadigi kesinlestirilmeden FAILED yasak.
+    // Dogrulanmis mutabakat akisi tamamlanana kadar kapali tutulur.
+    const providerNonCaptureVerified = false;
+
+    if (!providerNonCaptureVerified) {
+      throw new ForbiddenException(
+        'iyzico tahsilat yapilmadigi dogrulanmadan REVIEW kaydi FAILED yapilamaz. Once odeme mutabakati gereklidir.',
+      );
+    }
+
     const reason = String(body?.reason ?? '').trim();
 
     return this.prisma.$transaction(async (tx) => {
@@ -1413,13 +1447,13 @@ export class PaymentsService {
     }
 
     if (!iyzicoPaymentId) {
-      await this.markPaymentAttemptFailed(
+      await this.markPaymentAttemptReview(
         paymentAttemptId,
         result,
       );
 
       throw new BadRequestException(
-        'iyzico ödeme kimliği doğrulanamadı',
+        'iyzico ödeme kimliği eksik; yeniden ödeme başlatılmayacak, mutabakat gerekli',
       );
     }
 
@@ -1439,13 +1473,102 @@ export class PaymentsService {
     }
 
     if (!receivedAmount.equals(expectedAmount)) {
-      await this.markPaymentAttemptFailed(
+      await this.markPaymentAttemptReview(
         paymentAttemptId,
         result,
+        iyzicoPaymentId,
       );
 
       throw new BadRequestException(
-        'Ödeme tutarı sipariş tutarıyla eşleşmiyor',
+        'iyzico ödeme tutarı sipariş tutarıyla eşleşmiyor; yeniden ödeme başlatılmayacak, mutabakat gerekli',
+      );
+    }
+
+    // Yalnızca ödeme başlatılırken izin verilen taksitleri kabul et.
+    const rawRequest = currentAttempt.rawRequest;
+    const requestedInstallments =
+      rawRequest &&
+      typeof rawRequest === 'object' &&
+      !Array.isArray(rawRequest)
+        ? (rawRequest as Record<string, any>).enabledInstallments
+        : null;
+
+    // Yeni işlemlerde kartın taksitini iyzico belirler.
+    // Önceki ödeme denemelerinin taksit kuralları korunur.
+    const iyzicoManaged =
+      rawRequest !== null &&
+      typeof rawRequest === 'object' &&
+      !Array.isArray(rawRequest) &&
+      (rawRequest as Record<string, unknown>).installmentPolicy ===
+        'IYZICO_CHECKOUT';
+
+    const allowedInstallments = Array.isArray(requestedInstallments)
+      ? requestedInstallments
+      : [1];
+
+    const installment = Number(result.installment);
+    const installmentMatches =
+      Number.isSafeInteger(installment) &&
+      [1, 2, 3, 4, 6, 9, 12].includes(installment) &&
+      (iyzicoManaged || allowedInstallments.includes(installment));
+
+    // price satış bedelidir; paidPrice vade farkı içerebilir.
+    // Fazla tahsilat yalnızca iyzico'nun bildirdiği
+    // vade farkıyla eşleşiyorsa doğrulanır.
+    let paidPriceMatches = false;
+
+    try {
+      if (result.paidPrice !== null && result.paidPrice !== undefined) {
+        const paidPrice = new Prisma.Decimal(result.paidPrice);
+        const difference = paidPrice.minus(expectedAmount);
+
+        const validAmount =
+          paidPrice.isFinite() &&
+          paidPrice.decimalPlaces() <= 2 &&
+          paidPrice.gte(expectedAmount);
+
+        let validInstallmentFee = false;
+
+        if (
+          installment > 1 &&
+          result.merchantCommissionRateAmount !== null &&
+          result.merchantCommissionRateAmount !== undefined
+        ) {
+          const reportedFee = new Prisma.Decimal(
+            result.merchantCommissionRateAmount,
+          );
+
+          validInstallmentFee =
+            reportedFee.isFinite() &&
+            reportedFee.gte(0) &&
+            difference.equals(reportedFee);
+        }
+
+        paidPriceMatches =
+          validAmount &&
+          (difference.equals(0) || validInstallmentFee);
+      }
+    } catch {
+      paidPriceMatches = false;
+    }
+
+    const currencyMatches = result.currency === 'TRY';
+
+    if (!paidPriceMatches || !currencyMatches || !installmentMatches) {
+      if (currentAttempt.status === PaymentStatus.SUCCESS) {
+        throw new BadRequestException(
+          'Başarılı ödemenin tahsilat bilgileri tutarsız; mutabakat gerekli',
+        );
+      }
+
+      await this.markPaymentAttemptReview(
+        paymentAttemptId,
+        result,
+        iyzicoPaymentId,
+      );
+
+      throw new BadRequestException(
+        'iyzico tahsilat tutarı, para birimi veya taksit bilgisi doğrulanamadı; mutabakat gerekli',
       );
     }
 
@@ -1476,14 +1599,14 @@ export class PaymentsService {
     }
 
     if (fraudStatus !== 1) {
-      await this.markPaymentAttemptFailed(
+      await this.markPaymentAttemptReview(
         paymentAttemptId,
         result,
         iyzicoPaymentId,
       );
 
       throw new BadRequestException(
-        'IyziCo risk kontrolü ödeme işlemini onaylamadı',
+        'iyzico risk durumu kesin doğrulanamadı; yeniden ödeme başlatılmayacak, mutabakat gerekli',
       );
     }
 
@@ -1519,6 +1642,52 @@ export class PaymentsService {
       );
       throw new BadRequestException(
         'iyzico işlem satırı siparişle doğrulanamadı; mutabakat gerekli',
+      );
+    }
+
+    // iyzico'nun bildirdiği satıcı payı sipariş hakedişiyle eşleşmeli.
+    // Vade farkı ve iyzico işlem ücreti satıcı payına eklenmez.
+    let sellerShareMatches = false;
+
+    try {
+      if (
+        itemTransaction?.subMerchantPrice !== null &&
+        itemTransaction?.subMerchantPrice !== undefined &&
+        order.payoutAmount !== null &&
+        order.payoutAmount !== undefined
+      ) {
+        const reportedSellerShare = new Prisma.Decimal(
+          itemTransaction.subMerchantPrice,
+        );
+        const expectedSellerShare = new Prisma.Decimal(order.payoutAmount);
+
+        sellerShareMatches =
+          reportedSellerShare.isFinite() &&
+          expectedSellerShare.isFinite() &&
+          reportedSellerShare.gte(0) &&
+          expectedSellerShare.gte(0) &&
+          expectedSellerShare.lte(expectedAmount) &&
+          reportedSellerShare.equals(expectedSellerShare);
+      }
+    } catch {
+      sellerShareMatches = false;
+    }
+
+    if (!sellerShareMatches) {
+      if (currentAttempt.status === PaymentStatus.SUCCESS) {
+        throw new BadRequestException(
+          'Başarılı ödemenin satıcı hakedişi tutarsız; mutabakat gerekli',
+        );
+      }
+
+      await this.markPaymentAttemptReview(
+        paymentAttemptId,
+        result,
+        iyzicoPaymentId,
+      );
+
+      throw new BadRequestException(
+        'iyzico satıcı hakedişi eksik veya siparişle eşleşmiyor; mutabakat gerekli',
       );
     }
 
@@ -1652,6 +1821,97 @@ export class PaymentsService {
       if (existingPaymentTransaction) {
         throw new BadRequestException(
           'iyzico işlem kimliği daha önce kaydedilmiş; mutabakat gerekli',
+        );
+      }
+
+      // Stok rezervasyonunu ilk başarılı ödemede kesinleştir.
+      const reservation = await tx.order.findUnique({
+        where: { id: order.id },
+        select: {
+          productId: true,
+          variantId: true,
+          quantity: true,
+          stockReservationStatus: true,
+        },
+      });
+
+      if (!reservation) {
+        throw new BadRequestException(
+          'Ödeme sonrası sipariş bulunamadı; mutabakat gerekli',
+        );
+      }
+
+      if (reservation.stockReservationStatus === 'RESERVED') {
+        const quantity = reservation.quantity;
+
+        if (
+          !reservation.productId ||
+          !Number.isSafeInteger(quantity) ||
+          quantity <= 0
+        ) {
+          throw new BadRequestException(
+            'Stok rezervasyonu geçersiz; mutabakat gerekli',
+          );
+        }
+
+        const stockChange = reservation.variantId
+          ? await tx.productVariant.updateMany({
+              where: {
+                id: reservation.variantId,
+                productId: reservation.productId,
+                reservedQuantity: { gte: quantity },
+                OR: [
+                  { stockQuantity: null },
+                  { stockQuantity: { gte: quantity } },
+                ],
+              },
+              data: {
+                reservedQuantity: { decrement: quantity },
+                stockQuantity: { decrement: quantity },
+              },
+            })
+          : await tx.product.updateMany({
+              where: {
+                id: reservation.productId,
+                reservedQuantity: { gte: quantity },
+                OR: [
+                  { stockQuantity: null },
+                  { stockQuantity: { gte: quantity } },
+                ],
+              },
+              data: {
+                reservedQuantity: { decrement: quantity },
+                stockQuantity: { decrement: quantity },
+              },
+            });
+
+        if (stockChange.count !== 1) {
+          throw new BadRequestException(
+            'Stok kesinleştirilemedi; mutabakat gerekli',
+          );
+        }
+
+        const committed = await tx.order.updateMany({
+          where: {
+            id: order.id,
+            status: OrderStatus.PAID,
+            stockReservationStatus: 'RESERVED',
+          },
+          data: {
+            stockReservationStatus: 'COMMITTED',
+          },
+        });
+
+        if (committed.count !== 1) {
+          throw new BadRequestException(
+            'Stok durumu kesinleştirilemedi; mutabakat gerekli',
+          );
+        }
+      } else {
+        throw new BadRequestException(
+          reservation.stockReservationStatus === 'NONE'
+            ? 'Rezervasyonsuz eski sipariş için başarılı iyzico ödemesi alındı; ödeme ve stok mutabakatı gerekli'
+            : 'Ödeme sonrası stok durumu tutarsız; mutabakat gerekli',
         );
       }
 

@@ -18,7 +18,11 @@ describe('ProductService', () => {
         { provide: ProductCatalogService, useValue: {} },
         { provide: ProductRevisionService, useValue: {} },
       ],
-    }).compile();
+    })
+      .useMocker((token) =>
+        typeof token === 'function' ? {} : undefined,
+      )
+      .compile();
 
     service = module.get<ProductService>(ProductService);
   });

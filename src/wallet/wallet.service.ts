@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class WalletService {
+  private readonly manualWalletAdjustEnabled = false;
   constructor(private prisma: PrismaService) {}
 
   async getOrCreate(companyId: string) {
@@ -102,6 +103,12 @@ export class WalletService {
   // ✅ Admin test için bakiye yükle/indir
   async adminAdjust(user: any, companyId: string, amount: number, note?: string) {
     if (user.role !== Role.ADMIN) throw new ForbiddenException('Sadece ADMIN');
+
+    if (!this.manualWalletAdjustEnabled) {
+      throw new ForbiddenException(
+        'Manuel bakiye değiştirme kapalıdır. Ödeme ve hakedişler iyzico Marketplace üzerinden yönetilir.',
+      );
+    }
 
     if (typeof amount !== 'number' || Number.isNaN(amount)) {
       throw new BadRequestException('amount number olmalı');

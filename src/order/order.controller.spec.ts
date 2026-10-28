@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { OrderController } from './order.controller';
+import { OrderService } from './order.service';
 
 describe('OrderController', () => {
   let controller: OrderController;
@@ -7,7 +8,14 @@ describe('OrderController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [OrderController],
-    }).compile();
+      providers: [
+        { provide: OrderService, useValue: {} },
+      ],
+    })
+      .useMocker((token) =>
+        typeof token === 'function' ? {} : undefined,
+      )
+      .compile();
 
     controller = module.get<OrderController>(OrderController);
   });
