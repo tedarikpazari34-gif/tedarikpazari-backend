@@ -100,7 +100,7 @@ export class OrderService {
         throw new NotFoundException('Ürün bulunamadı');
       }
 
-      if (!product.isActive || !product.isApproved) {
+      if (!product.isActive || !product.isApproved || product.archivedAt) {
         throw new BadRequestException('Bu ürün satışa açık değil');
       }
 
@@ -222,6 +222,14 @@ export class OrderService {
             WHERE "id" = ${selectedVariant.id}
               AND "productId" = ${product.id}
               AND "isActive" = true
+              AND EXISTS (
+                SELECT 1
+                FROM "Product" p
+                WHERE p."id" = ${product.id}
+                  AND p."isActive" = true
+                  AND p."isApproved" = true
+                  AND p."archivedAt" IS NULL
+              )
               AND (
                 "stockQuantity" IS NULL
                 OR "stockQuantity" - "reservedQuantity" >= ${body.quantity}
@@ -233,6 +241,7 @@ export class OrderService {
             WHERE "id" = ${product.id}
               AND "isActive" = true
               AND "isApproved" = true
+              AND "archivedAt" IS NULL
               AND (
                 "stockQuantity" IS NULL
                 OR "stockQuantity" - "reservedQuantity" >= ${body.quantity}

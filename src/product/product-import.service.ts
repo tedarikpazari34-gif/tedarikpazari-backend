@@ -1038,9 +1038,16 @@ export class ProductImportService {
               id: true,
               sku: true,
               categoryId: true,
+              archivedAt: true,
             },
           })
         : null;
+
+      if (existingById?.archivedAt) {
+        throw new BadRequestException(
+          'Arşivlenmiş ürün Excel/XML ile güncellenemez',
+        );
+      }
 
       if (row.productId && !existingById) {
         throw new BadRequestException(
@@ -1070,9 +1077,16 @@ export class ProductImportService {
               id: true,
               sku: true,
               categoryId: true,
+              archivedAt: true,
             },
           })
         : null;
+
+      if (existingBySku?.archivedAt) {
+        throw new BadRequestException(
+          'Arşivlenmiş ürün Excel/XML ile güncellenemez',
+        );
+      }
 
       if (
         existingById &&
@@ -1386,6 +1400,7 @@ export class ProductImportService {
           const productStockUpdate = await tx.product.updateMany({
             where: {
               id: existing.id,
+              archivedAt: null,
               ...(normalized.stockQuantity === null
                 ? {}
                 : {
@@ -1453,6 +1468,21 @@ export class ProductImportService {
       let productId: string;
 
       if (existing) {
+        // Arsivleme ile ayni urun satirini kilitle.
+        const lockedProduct = await tx.$queryRaw<{ id: string }[]>`
+          SELECT "id" FROM "Product"
+          WHERE "id" = ${existing.id}
+            AND "sellerId" = ${sellerId}
+            AND "archivedAt" IS NULL
+          FOR UPDATE
+        `;
+
+        if (lockedProduct.length !== 1) {
+          throw new BadRequestException(
+            'Arşivlenmiş ürün Excel/XML ile güncellenemez',
+          );
+        }
+
         const product = await tx.product.update({
           where: { id: existing.id },
           data: {
@@ -3314,6 +3344,7 @@ export class ProductImportService {
             select: {
               id: true,
               sku: true,
+              archivedAt: true,
               brand: {
                 select: {
                   name: true,
@@ -3408,6 +3439,12 @@ export class ProductImportService {
       }
 
       const existing = byId ?? bySku;
+
+      if (existing?.archivedAt) {
+        errors.push(
+          'Bu ürün arşivlenmiş. Excel/XML ile güncellenemez',
+        );
+      }
 
       if (!skuKey && (!byId || Boolean(byId.sku?.trim()))) {
         errors.push('SKU zorunludur');

@@ -55,6 +55,13 @@ export class ProductRevisionService {
         );
       }
 
+      // Arsivleme ile ayni ana urun satirini kilitle.
+      await tx.$queryRaw`
+        SELECT "id" FROM "Product"
+        WHERE "id" = ${revision.productId}
+        FOR UPDATE
+      `;
+
       // Revizyonun ürün ve satıcı doğrulaması
       const product = await tx.product.findUnique({
         where: { id: revision.productId },
@@ -62,6 +69,7 @@ export class ProductRevisionService {
           id: true,
           sellerId: true,
           isApproved: true,
+          archivedAt: true,
         },
       });
 
@@ -71,7 +79,8 @@ export class ProductRevisionService {
 
       if (
         product.sellerId !== revision.sellerId ||
-        !product.isApproved
+        !product.isApproved ||
+        Boolean(product.archivedAt)
       ) {
         throw new BadRequestException(
           'Revizyonun ürün veya satıcı bilgileri geçersiz',

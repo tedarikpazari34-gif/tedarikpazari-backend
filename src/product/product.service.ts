@@ -137,6 +137,7 @@ export class ProductService {
 
     const products = await this.prisma.product.findMany({
       where: {
+        archivedAt: null,
         isActive: true,
         isApproved: true,
         ...categoryFilter,
@@ -269,6 +270,7 @@ export class ProductService {
 
     const products = await this.prisma.product.findMany({
       where: {
+        archivedAt: null,
         categoryId: {
           in: categoryIds,
         },
@@ -413,6 +415,7 @@ export class ProductService {
     return this.prisma.product.findMany({
       where: {
         sellerId: user.companyId,
+        archivedAt: null,
       },
       include: {
         category: true,
@@ -459,6 +462,7 @@ export class ProductService {
       where: {
         id: productId,
         sellerId: user.companyId,
+        archivedAt: null,
       },
       include: {
         category: true,
@@ -583,6 +587,7 @@ export class ProductService {
 
     return this.prisma.product.findMany({
       where: {
+        archivedAt: null,
         isApproved: false,
       },
       include: {
@@ -629,6 +634,7 @@ export class ProductService {
         id,
         isActive: true,
         isApproved: true,
+        archivedAt: null,
       },
       select: {
         id: true,
@@ -1143,6 +1149,10 @@ export class ProductService {
       throw new ForbiddenException('Bu ürün size ait değil');
     }
 
+    if (product.archivedAt) {
+      throw new BadRequestException('Silinmiş ürün güncellenemez');
+    }
+
     if (product.isApproved) {
       const immediateFields = new Set([
         'basePrice', 'stockQuantity', 'minStockThreshold', 'isActive',
@@ -1403,6 +1413,79 @@ export class ProductService {
     return updatedProduct;
   }
 
+
+  async archiveMine(user: any, id: string) {
+    await this.requireVerifiedSellerCompany(user);
+
+    return this.prisma.$transaction(async (tx) => {
+      // Siparis olusturma ile ayni ana urun kilidini kullan.
+      const locked = await tx.$queryRaw<{ id: string }[]>`
+        SELECT "id" FROM "Product"
+        WHERE "id" = ${id}
+          AND "sellerId" = ${user.companyId}
+        FOR UPDATE
+      `;
+
+      if (locked.length !== 1) {
+        throw new NotFoundException('Ürün bulunamadı');
+      }
+
+      const product = await tx.product.findFirst({
+        where: {
+          id,
+          sellerId: user.companyId,
+        },
+        select: {
+          id: true,
+          archivedAt: true,
+        },
+      });
+
+      if (!product) {
+        throw new NotFoundException('Ürün bulunamadı');
+      }
+
+      if (product.archivedAt) {
+        return {
+          id,
+          archived: true,
+          message: 'Ürün zaten arşivlenmiş',
+        };
+      }
+
+      const result = await tx.product.updateMany({
+        where: {
+          id,
+          sellerId: user.companyId,
+          archivedAt: null,
+          reservedQuantity: 0,
+          variants: {
+            none: {
+              reservedQuantity: { gt: 0 },
+            },
+          },
+        },
+        data: {
+          archivedAt: new Date(),
+          isActive: false,
+          stockAlertActive: false,
+        },
+      });
+
+      if (result.count !== 1) {
+        throw new BadRequestException(
+          'Ürün silinemedi. Açık stok rezervasyonu veya durum değişikliği olabilir',
+        );
+      }
+
+      return {
+        id,
+        archived: true,
+        message: 'Ürün arşivlendi',
+      };
+    });
+  }
+
   async approve(user: any, id: string) {
     if (user.role !== Role.ADMIN) {
       throw new ForbiddenException('Sadece ADMIN ürün onaylayabilir');
@@ -1416,8 +1499,17 @@ export class ProductService {
       throw new NotFoundException('Ürün bulunamadı');
     }
 
+    if (product.archivedAt) {
+      throw new BadRequestException(
+        'Arşivlenmiş ürün yeniden onaylanamaz',
+      );
+    }
+
     return this.prisma.product.update({
-      where: { id },
+      where: {
+        id,
+        archivedAt: null,
+      },
       data: {
         isApproved: true,
       },

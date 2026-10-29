@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -482,6 +483,13 @@ export class ProductController {
   @Put(':id/images')
   replaceImages(@Req() req: any, @Param('id') id: string, @Body() body: any) {
     return this.productService.replaceImages(req.user, id, body);
+  }
+
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @Delete('mine/:id')
+  archiveMine(@Req() req: any, @Param('id') id: string) {
+    return this.productService.archiveMine(req.user, id);
   }
 
   @ApiBearerAuth()

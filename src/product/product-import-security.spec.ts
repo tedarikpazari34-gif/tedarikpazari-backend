@@ -60,6 +60,7 @@ describe('ProductImportService moderation security', () => {
   };
 
   const tx = {
+    $queryRaw: jest.fn().mockResolvedValue([{ id: 'product-1' }]),
     product: {
       findFirst: jest.fn(),
       findUnique: jest.fn(),
@@ -182,6 +183,7 @@ describe('ProductImportService moderation security', () => {
     expect(tx.product.updateMany).toHaveBeenCalledWith({
       where: {
         id: productId,
+        archivedAt: null,
         reservedQuantity: { lte: 100 },
       },
       data: {
@@ -363,6 +365,7 @@ describe('ProductImportService moderation security', () => {
     expect(tx.product.updateMany).toHaveBeenCalledWith({
       where: {
         id: productId,
+        archivedAt: null,
         reservedQuantity: { lte: 20 },
       },
       data: {
@@ -466,6 +469,7 @@ describe('ProductImportService moderation security', () => {
     expect(tx.product.updateMany).toHaveBeenCalledWith({
       where: {
         id: productId,
+        archivedAt: null,
         reservedQuantity: { lte: 250 },
       },
       data: {

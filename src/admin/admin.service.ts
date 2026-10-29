@@ -333,8 +333,17 @@ export class AdminService {
       throw new NotFoundException('Product not found');
     }
 
+    if (product.archivedAt) {
+      throw new NotFoundException(
+        'Arşivlenmiş ürün yeniden onaylanamaz',
+      );
+    }
+
     return this.prisma.product.update({
-      where: { id: productId },
+      where: {
+        id: productId,
+        archivedAt: null,
+      },
       data: {
         isApproved: true,
       },

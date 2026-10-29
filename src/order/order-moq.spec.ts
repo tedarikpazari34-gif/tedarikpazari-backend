@@ -5,6 +5,9 @@ import { OrderService } from './order.service';
 describe('OrderService - MOQ katları', () => {
   const setup = (moq: number) => {
     const prisma = {
+      $transaction: jest.fn(),
+      $queryRaw: jest.fn().mockResolvedValue([{ id: 'product-1' }]),
+      $executeRaw: jest.fn().mockResolvedValue(1),
       product: {
         findUnique: jest.fn().mockResolvedValue({
           id: 'product-1',
@@ -14,6 +17,8 @@ describe('OrderService - MOQ katları', () => {
           isApproved: true,
           variants: [],
           stockQuantity: 1000,
+          reservedQuantity: 0,
+          archivedAt: null,
           moq,
           unitType: 'ADET',
           basePrice: 90,
@@ -27,6 +32,10 @@ describe('OrderService - MOQ katları', () => {
         findFirst: jest.fn().mockResolvedValue(null),
       },
     };
+
+    prisma.$transaction.mockImplementation(
+      async (callback: (tx: any) => Promise<any>) => callback(prisma)
+    );
 
     const service = new OrderService(
       prisma as any,
@@ -56,6 +65,7 @@ describe('OrderService - MOQ katları', () => {
     );
 
     expect(prisma.order.create).toHaveBeenCalledTimes(1);
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);
     expect(prisma.order.create.mock.calls[0][0].data.quantity).toBe(quantity);
   });
 
@@ -76,5 +86,6 @@ describe('OrderService - MOQ katları', () => {
     ).rejects.toThrow(BadRequestException);
 
     expect(prisma.order.create).not.toHaveBeenCalled();
+    expect(prisma.$executeRaw).not.toHaveBeenCalled();
   });
 });
