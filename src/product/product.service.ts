@@ -145,6 +145,23 @@ export class ProductService {
           ? {
               OR: [
                 {
+                  sku: {
+                    equals: q.trim(),
+                    mode: 'insensitive',
+                  },
+                },
+                {
+                  variants: {
+                    some: {
+                      isActive: true,
+                      sku: {
+                        equals: q.trim(),
+                        mode: 'insensitive',
+                      },
+                    },
+                  },
+                },
+                {
                   title: {
                     contains: q,
                     mode: 'insensitive',
