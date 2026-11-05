@@ -5,7 +5,8 @@
     "test",
     "dist",
     "**/*spec.ts",
-    "frontend"
+    "frontend",
+    "src/invoice/invoice-integration-test*.ts"
   ],
   "compilerOptions": {
     "declaration": false,

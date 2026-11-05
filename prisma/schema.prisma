@@ -223,6 +223,9 @@ model Company {
   productImportJobs ProductImportJob[]
   productXmlFeeds   ProductXmlFeed[]
   productRevisions  ProductRevision[]
+  invoicesAsBuyer InvoiceRecord[] @relation("BuyerInvoiceRecords")
+  invoicesAsSeller InvoiceRecord[] @relation("SellerInvoiceRecords")
+  invoicesAsIssuer InvoiceRecord[] @relation("IssuerInvoiceRecords")
 }
 
 model CompanyWallet {
@@ -260,6 +263,7 @@ model User {
   createdChargebackCases ChargebackCase[] @relation("ChargebackCreator")
   uploadedChargebackEvidence ChargebackEvidence[] @relation("ChargebackEvidenceUploader")
   chargebackEvents           ChargebackEvent[]    @relation("ChargebackEventActor")
+  uploadedInvoiceRecords InvoiceRecord[] @relation("UploadedInvoiceRecords")
 }
 
 model PushSubscription {
@@ -697,6 +701,7 @@ model Order {
   @@index([productId])
   @@index([variantId])
   @@index([status])
+  invoiceRecords InvoiceRecord[] @relation("OrderInvoiceRecords")
 }
 
 model PaymentAttempt {
@@ -763,6 +768,7 @@ model VerificationRequest {
 }
 
 model Dispute {
+  reasonCategory String?
   id          String             @id @default(cuid())
   orderId     String
   buyerId     String
@@ -782,6 +788,7 @@ model Dispute {
   escrowEvent   EscrowEvent?
   ledgerEntries LedgerEntry[]
   files         DisputeFile[]
+  invoiceRecords InvoiceRecord[] @relation("DisputeInvoiceRecords")
 
   @@index([orderId])
   @@index([status])
@@ -791,6 +798,9 @@ model DisputeFile {
   id           String   @id @default(cuid())
   disputeId    String
   url          String
+  publicId     String?
+  resourceType String?
+  deliveryType String?
   fileName     String?
   fileType     String?
   uploadedById String?
@@ -1251,4 +1261,88 @@ model ChargebackEvent {
   actor User @relation("ChargebackEventActor", fields: [actorId], references: [id], onDelete: Restrict)
 
   @@index([chargebackId, createdAt])
+}
+
+
+// Disarida resmi olarak duzenlenmis faturalarin platform kayitlari.
+// Bu model tek basina e-Fatura/e-Arsiv olusturmaz.
+
+enum InvoiceRecordKind {
+  SALE
+  RETURN
+  CREDIT_NOTE
+}
+
+enum InvoiceRecordChannel {
+  E_INVOICE
+  E_ARCHIVE
+  PAPER
+}
+
+enum InvoiceRecordStatus {
+  PENDING_REVIEW
+  RECORDED
+  REJECTED
+  CANCELLED
+}
+
+model InvoiceRecord {
+  id String @id @default(cuid())
+
+  orderId String
+  disputeId String?
+  buyerId String
+  sellerId String
+  issuerCompanyId String
+  uploadedByUserId String
+
+  kind InvoiceRecordKind
+  channel InvoiceRecordChannel
+  status InvoiceRecordStatus @default(PENDING_REVIEW)
+
+  invoiceNumber String
+  revision Int @default(1)
+  originalSaleInvoiceId String?
+  issuedAt DateTime
+
+  currency String @default("TRY")
+  netAmount Decimal
+  vatAmount Decimal
+  totalAmount Decimal
+
+  storagePublicId String @unique
+  storageResourceType String
+  storageDeliveryType String
+  fileSha256 String
+  fileMimeType String @default("application/pdf")
+
+  providerName String?
+  providerDocumentId String?
+
+  reviewedByUserId String?
+  reviewedAt DateTime?
+  reviewNote String?
+
+  cancelledAt DateTime?
+  cancellationReference String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order Order @relation("OrderInvoiceRecords", fields: [orderId], references: [id])
+  dispute Dispute? @relation("DisputeInvoiceRecords", fields: [disputeId], references: [id], onDelete: Restrict)
+  buyer Company @relation("BuyerInvoiceRecords", fields: [buyerId], references: [id])
+  seller Company @relation("SellerInvoiceRecords", fields: [sellerId], references: [id])
+  issuer Company @relation("IssuerInvoiceRecords", fields: [issuerCompanyId], references: [id])
+  uploadedBy User @relation("UploadedInvoiceRecords", fields: [uploadedByUserId], references: [id])
+  originalSaleInvoice InvoiceRecord? @relation("InvoiceReturnOrigin", fields: [originalSaleInvoiceId], references: [id], onDelete: Restrict)
+  relatedReturnDocuments InvoiceRecord[] @relation("InvoiceReturnOrigin")
+
+  @@unique([issuerCompanyId, invoiceNumber, revision])
+  @@index([orderId, createdAt])
+  @@index([disputeId])
+  @@index([originalSaleInvoiceId])
+  @@index([buyerId, issuedAt])
+  @@index([sellerId, issuedAt])
+  @@index([status])
 }

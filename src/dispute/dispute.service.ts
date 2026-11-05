@@ -19,6 +19,7 @@ import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
 import { AddDisputeFileDto } from './dto/add-dispute-file.dto';
 import { NotificationService } from '../notification/notification.service';
 import { IyzicoService } from '../payments/iyzico.service';
+import { CloudinaryService } from '../cloudinary/cloudinary.service';
 
 @Injectable()
 export class DisputeService {
@@ -28,6 +29,7 @@ export class DisputeService {
     private readonly prisma: PrismaService,
     private readonly notificationService: NotificationService,
     private readonly iyzico: IyzicoService,
+    private readonly cloudinaryService: CloudinaryService,
   ) {}
 
   private async ensureWallet(tx: Prisma.TransactionClient, companyId: string) {
@@ -77,7 +79,13 @@ export class DisputeService {
     };
   }
 
-  async open(user: any, orderId: string, reason: string, description?: string) {
+  async open(
+    user: any,
+    orderId: string,
+    reason: string,
+    description?: string,
+    reasonCategory?: string,
+  ) {
     if (user.role !== Role.BUYER && user.role !== Role.SELLER) {
       throw new ForbiddenException('Sadece BUYER veya SELLER dispute açabilir');
     }
@@ -185,6 +193,7 @@ export class DisputeService {
           buyerId: order.buyerId,
           sellerId: order.sellerId,
           reason: reason.trim(),
+          reasonCategory: reasonCategory ?? null,
           description: description?.trim() || null,
           status: DisputeStatus.OPEN,
         },
@@ -300,8 +309,24 @@ export class DisputeService {
         where: { buyerId: user.companyId },
         orderBy: { createdAt: 'desc' },
         include: {
-          order: true,
-          files: true,
+          order: {
+            select: {
+              id: true,
+              status: true,
+              totalAmount: true,
+              createdAt: true,
+            },
+          },
+          files: {
+            select: {
+              id: true,
+              disputeId: true,
+              fileName: true,
+              fileType: true,
+              uploadedById: true,
+              createdAt: true,
+            },
+          },
         },
       });
     }
@@ -311,8 +336,24 @@ export class DisputeService {
         where: { sellerId: user.companyId },
         orderBy: { createdAt: 'desc' },
         include: {
-          order: true,
-          files: true,
+          order: {
+            select: {
+              id: true,
+              status: true,
+              totalAmount: true,
+              createdAt: true,
+            },
+          },
+          files: {
+            select: {
+              id: true,
+              disputeId: true,
+              fileName: true,
+              fileType: true,
+              uploadedById: true,
+              createdAt: true,
+            },
+          },
         },
       });
     }
@@ -328,8 +369,24 @@ export class DisputeService {
     return this.prisma.dispute.findMany({
       orderBy: { createdAt: 'desc' },
       include: {
-        order: true,
-        files: true,
+        order: {
+            select: {
+              id: true,
+              status: true,
+              totalAmount: true,
+              createdAt: true,
+            },
+          },
+        files: {
+            select: {
+              id: true,
+              disputeId: true,
+              fileName: true,
+              fileType: true,
+              uploadedById: true,
+              createdAt: true,
+            },
+          },
       },
     });
   }
@@ -385,6 +442,21 @@ export class DisputeService {
     let iyzicoRefundAmount: Prisma.Decimal | null = null;
 
     if (resolution === DisputeResolution.REFUND_TO_BUYER) {
+      if (
+        body.physicalReturnConfirmed === true &&
+        dispute.reasonCategory !== 'PRODUCT_RETURN'
+      ) {
+        throw new BadRequestException(
+          'Mal iadesi doğrulaması uyuşmazlık kategorisiyle uyuşmuyor',
+        );
+      }
+
+      if (typeof body.physicalReturnConfirmed !== 'boolean') {
+        throw new BadRequestException(
+          'İade kararı için mal iadesi durumu açıkça belirtilmelidir',
+        );
+      }
+
       iyzicoRefundAmount = escrowAmount;
     }
 
@@ -1133,7 +1205,7 @@ export class DisputeService {
 
     return result;
   }
-  async addFile(user: any, disputeId: string, body: AddDisputeFileDto) {
+  private async assertEvidenceReadAccess(user: any, disputeId: string) {
     const dispute = await this.prisma.dispute.findUnique({
       where: { id: disputeId },
     });
@@ -1142,22 +1214,259 @@ export class DisputeService {
       throw new NotFoundException('Dispute bulunamadı');
     }
 
-    const isAdmin = user.role === 'ADMIN';
-    const isBuyer = dispute.buyerId === user.companyId;
-    const isSeller = dispute.sellerId === user.companyId;
-
-    if (!isAdmin && !isBuyer && !isSeller) {
-      throw new ForbiddenException('Bu dispute size ait değil');
+    if (
+      user.role !== Role.ADMIN &&
+      !(user.role === Role.BUYER && dispute.buyerId === user.companyId) &&
+      !(user.role === Role.SELLER && dispute.sellerId === user.companyId)
+    ) {
+      throw new ForbiddenException('Bu uyuşmazlığa erişim yetkiniz yok');
     }
+
+    return dispute;
+  }
+
+  private async assertEvidenceAccess(user: any, disputeId: string) {
+    const dispute = await this.assertEvidenceReadAccess(user, disputeId);
 
     if (
       dispute.status !== DisputeStatus.OPEN &&
       dispute.status !== DisputeStatus.SELLER_RESPONDED
     ) {
       throw new BadRequestException(
-        'Sonuçlandırılmış dispute için dosya eklenemez',
+        'Sonuçlandırılmış uyuşmazlığa kanıt eklenemez',
       );
     }
+  }
+
+  async uploadEvidence(
+    user: any,
+    disputeId: string,
+    file: Express.Multer.File,
+  ) {
+    await this.assertEvidenceAccess(user, disputeId);
+
+    if (!file?.buffer || !file.buffer.length) {
+      throw new BadRequestException('Kanıt dosyası boş olamaz');
+    }
+
+    if (file.buffer.length > 10 * 1024 * 1024) {
+      throw new BadRequestException('Kanıt dosyası en fazla 10 MB olabilir');
+    }
+
+    const bytes = file.buffer;
+    const startsWith = (...signature: number[]) =>
+      signature.every((value, i) => bytes[i] === value);
+
+    const detectedType =
+      startsWith(0xff, 0xd8, 0xff) ? 'image/jpeg' :
+      startsWith(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a) ? 'image/png' :
+      bytes.toString('ascii', 0, 4) === 'RIFF' &&
+      bytes.toString('ascii', 8, 12) === 'WEBP' ? 'image/webp' :
+      bytes.toString('ascii', 0, 5) === '%PDF-' ? 'application/pdf' :
+      null;
+
+    const extensions: Record<string, string[]> = {
+      'image/jpeg': ['.jpg', '.jpeg'],
+      'image/png': ['.png'],
+      'image/webp': ['.webp'],
+      'application/pdf': ['.pdf'],
+    };
+
+    const extension = file.originalname
+      ?.toLowerCase()
+      .match(/\.[a-z0-9]+$/)?.[0];
+
+    if (
+      !detectedType ||
+      file.mimetype !== detectedType ||
+      !extension ||
+      !extensions[detectedType].includes(extension)
+    ) {
+      throw new BadRequestException('Desteklenmeyen veya geçersiz kanıt dosyası');
+    }
+
+    const result = await this.cloudinaryService.uploadBuffer(bytes, {
+      folder: 'tedarik-pazari-platform/disputes',
+      resource_type: detectedType === 'application/pdf' ? 'raw' : 'image',
+      type: 'authenticated',
+      overwrite: false,
+      use_filename: false,
+      unique_filename: true,
+    });
+
+    if (
+      !result.public_id ||
+      !result.public_id.startsWith('tedarik-pazari-platform/disputes/') ||
+      result.type !== 'authenticated' ||
+      result.resource_type !==
+        (detectedType === 'application/pdf' ? 'raw' : 'image')
+    ) {
+      if (
+        typeof result.public_id === 'string' &&
+        result.public_id.startsWith('tedarik-pazari-platform/disputes/') &&
+        result.type === 'authenticated' &&
+        (result.resource_type === 'image' ||
+          result.resource_type === 'raw')
+      ) {
+        try {
+          await this.cloudinaryService.deleteDisputeEvidence(
+            result.public_id,
+            result.resource_type,
+          );
+        } catch {
+          this.logger.error(
+            `Doğrulanamayan kanıt dosyası temizlenemedi; uyuşmazlık: ${disputeId}`,
+          );
+        }
+      } else {
+        this.logger.error(
+          `Cloudinary kanıt yanıtı güvenli temizleme için doğrulanamadı; uyuşmazlık: ${disputeId}`,
+        );
+      }
+
+      throw new BadRequestException(
+        'Cloudinary özel kanıt dosyası doğrulanamadı',
+      );
+    }
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+      const current = await tx.dispute.findUnique({
+        where: { id: disputeId },
+        select: { id: true, orderId: true },
+      });
+
+      if (!current) {
+        throw new NotFoundException('Dispute bulunamadı');
+      }
+
+      await tx.$queryRaw`
+        SELECT pg_advisory_xact_lock(
+          hashtextextended(${'order-lifecycle:' + current.orderId}, 0)
+        )::text
+      `;
+
+      const dispute = await tx.dispute.findUnique({
+        where: { id: disputeId },
+      });
+
+      if (
+        !dispute ||
+        (dispute.status !== DisputeStatus.OPEN &&
+          dispute.status !== DisputeStatus.SELLER_RESPONDED)
+      ) {
+        throw new BadRequestException(
+          'Uyuşmazlık kapanmış; kanıt dosyası kaydedilemez',
+        );
+      }
+
+      if (
+        user.role !== Role.ADMIN &&
+        dispute.buyerId !== user.companyId &&
+        dispute.sellerId !== user.companyId
+      ) {
+        throw new ForbiddenException('Bu uyuşmazlığa erişim yetkiniz yok');
+      }
+
+      return tx.disputeFile.create({
+        data: {
+          disputeId,
+          url: result.secure_url,
+          publicId: result.public_id,
+          resourceType: result.resource_type,
+          deliveryType: 'authenticated',
+          fileName: file.originalname.slice(0, 255),
+          fileType: detectedType,
+          uploadedById: user.id,
+        },
+          select: {
+            id: true,
+            disputeId: true,
+            fileName: true,
+            fileType: true,
+            uploadedById: true,
+            createdAt: true,
+          },
+      });
+    });
+    } catch (error) {
+      const publicId = result.public_id;
+      const resourceType =
+        detectedType === 'application/pdf' ? 'raw' : 'image';
+
+      if (typeof publicId === 'string' && publicId.length > 0) {
+        try {
+          await this.cloudinaryService.deleteDisputeEvidence(
+            publicId,
+            resourceType,
+          );
+        } catch {
+          this.logger.error(
+            `Kanıt dosyası temizlenemedi; uyuşmazlık: ${disputeId}`,
+          );
+        }
+      } else {
+        this.logger.error(
+          `Kanıt dosyasının Cloudinary kimliği eksik; uyuşmazlık: ${disputeId}`,
+        );
+      }
+
+      throw error;
+    }
+  }
+
+  async downloadEvidence(
+    user: any,
+    disputeId: string,
+    fileId: string,
+  ) {
+    await this.assertEvidenceReadAccess(user, disputeId);
+
+    const file = await this.prisma.disputeFile.findFirst({
+      where: {
+        id: fileId,
+        disputeId,
+      },
+    });
+
+    if (!file) {
+      throw new NotFoundException('Kanıt dosyası bulunamadı');
+    }
+
+    if (
+      !file.publicId ||
+      !file.publicId.startsWith('tedarik-pazari-platform/disputes/') ||
+      file.deliveryType !== 'authenticated' ||
+      (file.resourceType !== 'image' && file.resourceType !== 'raw')
+    ) {
+      throw new ForbiddenException(
+        'Bu kanıt için güvenli indirme bağlantısı oluşturulamıyor',
+      );
+    }
+
+    const format = file.fileType === 'application/pdf' ? 'pdf'
+      : file.fileType === 'image/jpeg' ? 'jpg'
+      : file.fileType === 'image/png' ? 'png'
+      : file.fileType === 'image/webp' ? 'webp'
+      : null;
+
+    if (
+      !format ||
+      (format === 'pdf' && file.resourceType !== 'raw') ||
+      (format !== 'pdf' && file.resourceType !== 'image')
+    ) {
+      throw new ForbiddenException('Kanıt dosyasının türü doğrulanamadı');
+    }
+
+    return this.cloudinaryService.createDisputeEvidenceDownloadUrl(
+      file.publicId,
+      file.resourceType,
+      format,
+    );
+  }
+
+  async addFile(user: any, disputeId: string, body: AddDisputeFileDto) {
+    await this.assertEvidenceAccess(user, disputeId);
 
     let fileUrl: URL;
     try {

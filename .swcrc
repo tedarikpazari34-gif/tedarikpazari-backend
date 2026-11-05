@@ -2,5 +2,8 @@
   "module": {
     "type": "commonjs",
     "noInterop": true
-  }
+  },
+  "exclude": [
+    ".*invoice-integration-test.*\\.ts$"
+  ]
 }

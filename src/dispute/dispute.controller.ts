@@ -7,7 +7,11 @@ import {
   Req,
   UseGuards,
   ForbiddenException,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { DisputeService } from './dispute.service';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
@@ -55,6 +59,7 @@ export class DisputeController {
       orderId,
       body.reason,
       body.description,
+      body.reasonCategory,
     );
   }
 
@@ -85,13 +90,39 @@ export class DisputeController {
     return this.disputeService.resolve(req.user, id, body, req.ip);
   }
   @UseGuards(JwtAuthGuard)
-@Post(':id/files')
-@ApiOperation({ summary: 'Attach file to dispute' })
-addFile(
-  @Req() req: any,
-  @Param('id') id: string,
-  @Body() body: AddDisputeFileDto,
-) {
-  return this.disputeService.addFile(req.user, id, body);
-}
+  @Post(':id/evidence')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 10 * 1024 * 1024 },
+    }),
+  )
+  @ApiOperation({ summary: 'Upload evidence to authorized dispute' })
+  uploadEvidence(
+    @Req() req: any,
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.disputeService.uploadEvidence(req.user, id, file);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/evidence/:fileId/download')
+  @ApiOperation({ summary: 'Download authorized dispute evidence' })
+  downloadEvidence(
+    @Req() req: any,
+    @Param('id') id: string,
+    @Param('fileId') fileId: string,
+  ) {
+    return this.disputeService.downloadEvidence(req.user, id, fileId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/files')
+  @ApiOperation({ summary: 'Legacy URL attachment disabled' })
+  addFile() {
+    throw new ForbiddenException(
+      'Eski dosya bağlama yöntemi kapatıldı. Güvenli kanıt yükleme API kullanın.',
+    );
+  }
 }

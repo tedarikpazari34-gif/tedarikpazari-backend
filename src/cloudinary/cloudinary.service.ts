@@ -19,6 +19,70 @@ export class CloudinaryService {
     });
   }
 
+  async deleteDisputeEvidence(
+    publicId: string,
+    resourceType: 'image' | 'raw',
+  ): Promise<void> {
+    if (
+      typeof publicId !== 'string' ||
+      !publicId.startsWith('tedarik-pazari-platform/disputes/') ||
+      publicId.length <= 'tedarik-pazari-platform/disputes/'.length ||
+      !['image', 'raw'].includes(resourceType)
+    ) {
+      throw new Error('Geçersiz uyuşmazlık dosyası kimliği');
+    }
+
+    const result = await cloudinary.uploader.destroy(publicId, {
+      resource_type: resourceType,
+      type: 'authenticated',
+      invalidate: true,
+    });
+
+    if (result.result !== 'ok' && result.result !== 'not found') {
+      throw new InternalServerErrorException(
+        'Uyuşmazlık dosyası Cloudinary üzerinden silinemedi',
+      );
+    }
+  }
+
+  createDisputeEvidenceDownloadUrl(
+    publicId: string,
+    resourceType: 'image' | 'raw',
+    format: string,
+  ): { url: string; expiresAt: string } {
+    if (
+      typeof publicId !== 'string' ||
+      !publicId.startsWith('tedarik-pazari-platform/disputes/') ||
+      publicId.length <= 'tedarik-pazari-platform/disputes/'.length ||
+      !['image', 'raw'].includes(resourceType) ||
+      !['pdf', 'jpg', 'jpeg', 'png', 'webp'].includes(format)
+    ) {
+      throw new Error('Geçersiz özel kanıt dosyası referansı');
+    }
+
+    const expiresAt = Math.floor(Date.now() / 1000) + 300;
+
+    const url = cloudinary.utils.private_download_url(
+      publicId,
+      format,
+      {
+        resource_type: resourceType,
+        type: 'authenticated',
+        expires_at: expiresAt,
+        attachment: true,
+      },
+    );
+
+    if (!url || !url.startsWith('https://')) {
+      throw new Error('Güvenli kanıt indirme bağlantısı oluşturulamadı');
+    }
+
+    return {
+      url,
+      expiresAt: new Date(expiresAt * 1000).toISOString(),
+    };
+  }
+
   uploadBuffer(
     buffer: Buffer,
     options: UploadApiOptions = {},

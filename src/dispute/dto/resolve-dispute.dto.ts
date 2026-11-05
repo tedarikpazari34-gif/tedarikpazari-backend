@@ -1,8 +1,11 @@
-import { IsEnum, IsOptional, IsString, IsNumber, Min } from 'class-validator';
+import { IsBoolean, IsEnum, IsOptional, IsString, IsNumber, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import { DisputeResolution } from '@prisma/client';
 
 export class ResolveDisputeDto {
+  @IsBoolean()
+  physicalReturnConfirmed?: boolean;
+
   @IsEnum(DisputeResolution)
   resolution: DisputeResolution;
 

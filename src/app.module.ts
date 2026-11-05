@@ -15,6 +15,7 @@ import { OrderModule } from './order/order.module';
 import { AdminModule } from './admin/admin.module';
 import { DisputeModule } from './dispute/dispute.module';
 import { ChargebackModule } from './chargeback/chargeback.module';
+import { InvoiceModule } from './invoice/invoice.module';
 
 import { WalletModule } from './wallet/wallet.module';
 import { FavoriteModule } from './favorite/favorite.module';
@@ -56,6 +57,7 @@ import { AiModule } from './ai/ai.module';
     AdminModule,
     DisputeModule,
     ChargebackModule,
+    InvoiceModule,
     DashboardModule,
     CompanyModule,
     ShippingModule,
