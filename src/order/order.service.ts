@@ -158,14 +158,6 @@ export class OrderService {
         );
       }
 
-      const quantityStep = Math.max(Number(product.quantityStep || 1), 1);
-
-      if ((body.quantity - product.moq) % quantityStep !== 0) {
-        throw new BadRequestException(
-          `Sipariş miktarı ${product.moq} değerinden başlayarak ${quantityStep} ${product.unitType} adımlarla artırılmalıdır`,
-        );
-      }
-
       const unitPrice = new Prisma.Decimal(
         selectedVariant?.price ?? product.basePrice,
       );
@@ -263,6 +255,9 @@ export class OrderService {
           variantSku: selectedVariant?.sku ?? null,
           variantBarcode: selectedVariant?.barcode ?? null,
           unitPriceSnapshot: unitPrice,
+          productTitleSnapshot: product.title,
+          productSkuSnapshot: product.sku,
+          unitTypeSnapshot: product.unitType,
           buyerId: user.companyId,
           sellerId: product.sellerId,
           netAmount,

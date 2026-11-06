@@ -645,6 +645,9 @@ model Order {
   variantSku       String?
   variantBarcode   String?
   unitPriceSnapshot Decimal?
+  productTitleSnapshot String?
+  productSkuSnapshot   String?
+  unitTypeSnapshot     String?
   buyerId          String
   sellerId         String
   netAmount        Decimal @default(0)
