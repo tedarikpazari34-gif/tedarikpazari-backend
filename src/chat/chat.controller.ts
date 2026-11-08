@@ -37,6 +37,21 @@ listFlagged(@Req() req: any) {
   return this.chatService.listFlaggedMessages(req.user);
 }
   @UseGuards(JwtAuthGuard)
+  @Post('admin/flagged/:messageId/review')
+  reviewFlagged(
+    @Req() req: any,
+    @Param('messageId') messageId: string,
+    @Body() body: { decision?: string; note?: unknown },
+  ) {
+    return this.chatService.reviewFlaggedMessage(
+      req.user,
+      messageId,
+      body?.decision as string,
+      body?.note,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post('admin/company/:companyId/message')
   sendAdminCompanyMessage(
     @Req() req: any,

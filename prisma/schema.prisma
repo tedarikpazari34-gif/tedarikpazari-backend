@@ -1072,6 +1072,10 @@ model ChatMessage {
   senderId  String
   content   String
   isFlagged Boolean @default(false)
+  reviewedAt   DateTime?
+  reviewedById String?
+  reviewDecision String?
+  reviewNote   String?
 
   fileUrl  String?
   fileName String?
@@ -1087,6 +1091,7 @@ model ChatMessage {
   @@index([threadId])
   @@index([senderId])
   @@index([createdAt])
+  @@index([isFlagged, reviewedAt])
 }
 
 model PayoutRequest {

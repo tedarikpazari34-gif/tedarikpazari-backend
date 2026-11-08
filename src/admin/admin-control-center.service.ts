@@ -47,7 +47,10 @@ export class AdminControlCenterService {
         } as any,
       }),
       this.prisma.chatMessage.count({
-        where: { isFlagged: true },
+        where: {
+          isFlagged: true,
+          reviewedAt: null,
+        },
       }),
     ]);
 

@@ -298,6 +298,89 @@ export class ChatService {
       },
     });
   }
+
+  async reviewFlaggedMessage(
+    user: any,
+    messageId: string,
+    decision: string,
+    note?: unknown,
+  ) {
+    if (user?.role !== Role.ADMIN || !user?.id) {
+      throw new ForbiddenException('Sadece ADMIN inceleyebilir');
+    }
+
+    if (
+      typeof messageId !== 'string' ||
+      !messageId.trim() ||
+      messageId.length > 128
+    ) {
+      throw new BadRequestException('Geçersiz mesaj kimliği');
+    }
+
+    if (
+      decision !== 'VIOLATION_CONFIRMED' &&
+      decision !== 'NO_VIOLATION'
+    ) {
+      throw new BadRequestException('Geçersiz moderasyon kararı');
+    }
+
+    if (
+      note !== undefined &&
+      note !== null &&
+      (typeof note !== 'string' || note.trim().length > 500)
+    ) {
+      throw new BadRequestException('İnceleme notu en fazla 500 karakter olabilir');
+    }
+
+    const cleanNote =
+      typeof note === 'string' ? note.trim() || null : null;
+
+    return this.prisma.$transaction(async (tx) => {
+      const reviewedAt = new Date();
+
+      const updated = await tx.chatMessage.updateMany({
+        where: {
+          id: messageId,
+          isFlagged: true,
+          reviewedAt: null,
+        },
+        data: {
+          reviewedAt,
+          reviewedById: user.id,
+          reviewDecision: decision,
+          reviewNote: cleanNote,
+        },
+      });
+
+      if (updated.count !== 1) {
+        throw new NotFoundException(
+          'İnceleme bekleyen mesaj bulunamadı veya daha önce incelendi',
+        );
+      }
+
+      await tx.auditLog.create({
+        data: {
+          actorId: user.id,
+          actorRole: Role.ADMIN,
+          actorCompanyId: user.companyId ?? null,
+          action: 'CHAT_MODERATION_REVIEW',
+          entity: 'ChatMessage',
+          entityId: messageId,
+          metadata: { decision },
+        },
+      });
+
+      return {
+        id: messageId,
+        isFlagged: true,
+        reviewedAt,
+        reviewedById: user.id,
+        reviewDecision: decision,
+        reviewNote: cleanNote,
+      };
+    });
+  }
+
   async getUnreadCount(user: any) {
     return this.prisma.chatMessage.count({
       where: {
