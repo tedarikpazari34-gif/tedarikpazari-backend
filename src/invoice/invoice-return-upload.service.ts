@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
@@ -417,7 +418,15 @@ export class ReturnInvoiceUploadService {
         return { invoice, notices };
       });
 
-      this.notifier.publish(committed.notices);
+      // Kaydedilmiş fatura, anlık bildirim hatasından etkilenmemeli.
+      try {
+        this.notifier.publish(committed.notices);
+      } catch {
+        Logger.warn(
+          'İade belgesi kaydedildi fakat anlık bildirim başarısız',
+          ReturnInvoiceUploadService.name,
+        );
+      }
       return committed.invoice;
 
     } catch (error) {

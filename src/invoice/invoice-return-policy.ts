@@ -195,6 +195,7 @@ export function assertReturnDocumentEligible(
   }
 
   const activeDispute =
+    beforeRefund &&
     (
       dispute.status === DisputeStatus.OPEN ||
       dispute.status === DisputeStatus.SELLER_RESPONDED

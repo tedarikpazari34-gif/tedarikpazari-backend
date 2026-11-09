@@ -304,6 +304,14 @@ export class DisputeService {
   }
 
   async listMine(user: any) {
+    if (user?.role !== Role.BUYER && user?.role !== Role.SELLER) {
+      throw new ForbiddenException('Yetkisiz');
+    }
+
+    if (typeof user.companyId !== 'string' || !user.companyId.trim()) {
+      throw new ForbiddenException('Şirket kimliği doğrulanamadı');
+    }
+
     if (user.role === Role.BUYER) {
       return this.prisma.dispute.findMany({
         where: { buyerId: user.companyId },

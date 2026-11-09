@@ -1,4 +1,5 @@
 import {
+  Logger,
   BadRequestException,
   ConflictException,
   ForbiddenException,
@@ -414,7 +415,15 @@ export class AdminInvoiceReviewService {
       };
     });
 
-    this.notifier.publish(completed.notices);
+    // Tamamlanan yönetici kararı bildirim hatasından etkilenmemeli.
+    try {
+      this.notifier.publish(completed.notices);
+    } catch {
+      Logger.warn(
+        'Fatura inceleme kararı kaydedildi fakat anlık bildirim başarısız',
+        AdminInvoiceReviewService.name,
+      );
+    }
 
     return {
       invoiceId: completed.invoiceId,
