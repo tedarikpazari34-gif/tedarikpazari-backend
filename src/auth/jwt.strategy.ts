@@ -31,6 +31,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Kullanıcı bulunamadı');
     }
 
+    if (
+      !Number.isInteger(payload.sessionVersion) ||
+      !Number.isInteger(user.sessionVersion) ||
+      payload.sessionVersion !== user.sessionVersion
+    ) {
+      throw new UnauthorizedException('Oturum geçersiz, yeniden giriş yapın');
+    }
+
     return {
       id: user.id,
       userId: user.id,

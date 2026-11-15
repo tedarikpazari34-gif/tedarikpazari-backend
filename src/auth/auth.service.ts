@@ -5,6 +5,7 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationType, Prisma, Role } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { validateNewPassword } from './password-policy';
 import axios from 'axios';
 import { NotificationService } from '../notification/notification.service';
 import { ChatGateway } from '../chat/chat.gateway';
@@ -71,14 +72,22 @@ export class AuthService {
       throw new BadRequestException('Doğrulama bağlantısının süresi dolmuş');
     }
 
-    await this.prisma.user.update({
-      where: { id: user.id },
+    const verified = await this.prisma.user.updateMany({
+      where: {
+        id: user.id,
+        emailVerificationToken: token,
+        emailVerificationExpiresAt: { gt: new Date() },
+      },
       data: {
         emailVerified: true,
         emailVerificationToken: null,
         emailVerificationExpiresAt: null,
       },
     });
+
+    if (verified.count !== 1) {
+      throw new BadRequestException('Doğrulama bağlantısı geçersiz veya süresi dolmuş');
+    }
 
     return {
       message: 'E-posta adresiniz doğrulandı',
@@ -203,6 +212,7 @@ export class AuthService {
       throw new BadRequestException('Bu email zaten kayıtlı');
     }
 
+    validateNewPassword(password);
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const company = await this.prisma.company.create({
@@ -528,6 +538,217 @@ export class AuthService {
     return genericResponse;
   }
 
+  async requestPasswordReset(email: string) {
+    const genericResponse = {
+      message: 'E-posta adresi kayıtlıysa şifre sıfırlama bağlantısı gönderilecektir',
+    };
+
+    if (typeof email !== 'string' || !email.trim()) {
+      return genericResponse;
+    }
+
+    const normalizedEmail = email.trim().toLowerCase();
+
+    const user = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (!user) {
+      return genericResponse;
+    }
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto
+      .createHash('sha256')
+      .update(token)
+      .digest('hex');
+
+    const expiresAt = new Date(Date.now() + 30 * 60 * 1000);
+
+    const updated = await this.prisma.user.updateMany({
+      where: { id: user.id },
+      data: {
+        passwordResetTokenHash: tokenHash,
+        passwordResetExpiresAt: expiresAt,
+      },
+    });
+
+    if (updated.count !== 1) {
+      return genericResponse;
+    }
+
+    try {
+      const url =
+        'https://tedarikpazarı.com/reset-password?token=' +
+        encodeURIComponent(token);
+
+      await this.mailService.sendMail({
+        to: user.email,
+        subject: 'Nex Tedarik Pazarı - Şifre sıfırlama',
+        text: 'Şifrenizi sıfırlamak için bağlantıyı açın: ' +
+          url +
+          '\nBu bağlantı 30 dakika geçerlidir.',
+      });
+    } catch {
+      console.error('PASSWORD_RESET_MAIL_FAILED');
+    }
+
+    return genericResponse;
+  }
+
+  async resetPassword(token: string, newPassword: string) {
+    if (
+      typeof token !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(token)
+    ) {
+      throw new BadRequestException(
+        'Şifre sıfırlama bağlantısı geçersiz veya süresi dolmuş',
+      );
+    }
+
+    validateNewPassword(newPassword);
+
+    const tokenHash = crypto
+      .createHash('sha256')
+      .update(token)
+      .digest('hex');
+
+    const user = await this.prisma.user.findFirst({
+      where: {
+        passwordResetTokenHash: tokenHash,
+        passwordResetExpiresAt: { gt: new Date() },
+      },
+    });
+
+    if (!user) {
+      throw new BadRequestException(
+        'Şifre sıfırlama bağlantısı geçersiz veya süresi dolmuş',
+      );
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+
+    const updated = await this.prisma.user.updateMany({
+      where: {
+        id: user.id,
+        passwordResetTokenHash: tokenHash,
+        passwordResetExpiresAt: { gt: new Date() },
+      },
+      data: {
+        password: passwordHash,
+        passwordResetTokenHash: null,
+        passwordResetExpiresAt: null,
+        sessionVersion: { increment: 1 },
+      },
+    });
+
+    if (updated.count !== 1) {
+      throw new BadRequestException(
+        'Şifre sıfırlama bağlantısı geçersiz veya süresi dolmuş',
+      );
+    }
+
+    try {
+      await this.notificationService.createNotification({
+        userId: user.id,
+        type: NotificationType.SYSTEM,
+        title: 'Hesap güvenliği',
+        message: 'Şifreniz sıfırlandı. İşlem size ait değilse destek ekibimizle iletişime geçin.',
+        link: '/panel',
+      });
+    } catch {
+      console.error('PASSWORD_RESET_NOTIFICATION_FAILED');
+    }
+
+    try {
+      if (user.email) {
+        await this.mailService.sendMail({
+          to: user.email,
+          subject: 'Nex Tedarik Pazarı - Şifreniz sıfırlandı',
+          text: 'Hesabınızın şifresi sıfırlandı. İşlem size ait değilse destek ekibimizle iletişime geçin.',
+        });
+      }
+    } catch {
+      console.error('PASSWORD_RESET_MAIL_FAILED');
+    }
+
+    return { message: 'Şifreniz başarıyla sıfırlandı' };
+  }
+
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ) {
+    if (!userId || !currentPassword) {
+      throw new BadRequestException('Mevcut şifre zorunludur');
+    }
+
+    validateNewPassword(newPassword);
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new BadRequestException('Kullanıcı bulunamadı');
+    }
+
+    const valid = await bcrypt.compare(currentPassword, user.password);
+
+    if (!valid) {
+      throw new BadRequestException('Mevcut şifre hatalı');
+    }
+
+    if (await bcrypt.compare(newPassword, user.password)) {
+      throw new BadRequestException('Yeni şifre mevcut şifreyle aynı olamaz');
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+
+    const updated = await this.prisma.user.updateMany({
+      where: {
+        id: user.id,
+        sessionVersion: user.sessionVersion,
+        password: user.password,
+      },
+      data: {
+        password: passwordHash,
+        sessionVersion: { increment: 1 },
+      },
+    });
+
+    if (updated.count !== 1) {
+      throw new BadRequestException('Şifre değişikliği çakıştı, tekrar deneyin');
+    }
+
+    try {
+      await this.notificationService.createNotification({
+        userId: user.id,
+        type: NotificationType.SYSTEM,
+        title: 'Hesap güvenliği',
+        message: 'Hesabınızın şifresi değiştirildi. İşlem size ait değilse destek ekibimizle iletişime geçin.',
+        link: '/panel',
+      });
+    } catch (error) {
+      console.error('PASSWORD_CHANGE_NOTIFICATION_FAILED');
+    }
+
+    try {
+      if (user.email) {
+        await this.mailService.sendMail({
+          to: user.email,
+          subject: 'Nex Tedarik Pazarı - Şifreniz değiştirildi',
+          text: 'Hesabınızın şifresi değiştirildi. Bu işlemi siz yapmadıysanız derhal destek ekibimizle iletişime geçin.',
+        });
+      }
+    } catch (error) {
+      console.error('PASSWORD_CHANGE_MAIL_FAILED');
+    }
+
+    return { message: 'Şifre başarıyla değiştirildi' };
+  }
+
   async login(data: any) {
     const { email, password } = data;
 
@@ -562,6 +783,7 @@ export class AuthService {
       role: user.company.role,
       companyStatus: user.company.status,
       emailVerified: user.emailVerified,
+      sessionVersion: user.sessionVersion,
     };
 
     const token = await this.jwt.signAsync(payload);

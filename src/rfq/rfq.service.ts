@@ -208,7 +208,7 @@ export class RfqService {
   }
 
   async getForSellerById(user: any, id: string) {
-    if (!user || user.role !== 'SELLER') {
+    if (!user || user.role !== 'SELLER' || !user.companyId) {
       throw new ForbiddenException(
         'Sadece SELLER RFQ detayını görebilir',
       );
@@ -220,8 +220,9 @@ export class RfqService {
         product: true,
         category: true,
         quotes: {
+          where: { sellerId: user.companyId },
           include: {
-            seller: true,
+            seller: { select: { id: true } },
           },
           orderBy: {
             createdAt: 'desc',
@@ -243,7 +244,7 @@ export class RfqService {
 
   // BUYER → kendi RFQ'ları
   async listMine(user: any) {
-    if (!user || user.role !== 'BUYER') {
+    if (!user || user.role !== 'BUYER' || !user.companyId) {
       throw new ForbiddenException(
         'Sadece BUYER kendi RFQ listesini görebilir',
       );
@@ -257,7 +258,7 @@ export class RfqService {
         product: true,
         quotes: {
           include: {
-            seller: true,
+            seller: { select: { id: true } },
           },
           orderBy: {
             createdAt: 'desc',
@@ -358,14 +359,7 @@ export class RfqService {
       },
       include: {
         product: true,
-        quotes: {
-          include: {
-            seller: true,
-          },
-          orderBy: {
-            createdAt: 'desc',
-          },
-        },
+        _count: { select: { quotes: true } },
       },
       orderBy: {
         createdAt: 'desc',
@@ -375,7 +369,7 @@ export class RfqService {
 
   // SELLER → kendisine gelen RFQ'lar
   async listForSeller(user: any) {
-    if (!user || user.role !== 'SELLER') {
+    if (!user || user.role !== 'SELLER' || !user.companyId) {
       throw new ForbiddenException(
         'Sadece SELLER gelen RFQ listesini görebilir',
       );
@@ -423,14 +417,7 @@ export class RfqService {
       include: {
         product: true,
         category: true,
-        quotes: {
-          include: {
-            seller: true,
-          },
-          orderBy: {
-            createdAt: 'desc',
-          },
-        },
+        _count: { select: { quotes: true } },
       },
       orderBy: {
         createdAt: 'desc',

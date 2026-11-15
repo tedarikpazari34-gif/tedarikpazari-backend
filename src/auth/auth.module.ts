@@ -2,6 +2,7 @@ import { getJwtSecret } from './jwt-secret';
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
+import { ThrottlerModule } from '@nestjs/throttler';
 
 import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
@@ -20,6 +21,7 @@ import { CommonModule } from '../common/common.module';
     ChatModule,
     MailModule,
     PassportModule,
+    ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 10 }]),
     JwtModule.register({
       secret:
         getJwtSecret(),

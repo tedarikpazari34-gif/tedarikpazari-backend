@@ -27,7 +27,7 @@ export class RfqController {
   @Post()
   @ApiOperation({ summary: 'Create RFQ (BUYER)' })
   create(@Req() req: any, @Body() body: any) {
-    this.logger.log(`CREATE user=${JSON.stringify(req.user)}`);
+    this.logger.log('CREATE RFQ request');
 
     if (req.user.role !== 'BUYER') {
       throw new ForbiddenException('Sadece BUYER RFQ oluşturabilir');
@@ -60,7 +60,7 @@ export class RfqController {
   @Get('mine')
   @ApiOperation({ summary: 'List my RFQs (BUYER)' })
   listMine(@Req() req: any) {
-    this.logger.log(`MINE user=${JSON.stringify(req.user)}`);
+    this.logger.log('MINE RFQ request');
 
     if (req.user.role !== 'BUYER') {
       throw new ForbiddenException(
@@ -75,7 +75,7 @@ export class RfqController {
   @Get('open')
   @ApiOperation({ summary: 'List all OPEN RFQs (SELLER)' })
   listOpen(@Req() req: any) {
-    this.logger.log(`OPEN user=${JSON.stringify(req.user)}`);
+    this.logger.log('OPEN RFQ request');
 
     if (req.user.role !== 'SELLER') {
       throw new ForbiddenException(
@@ -90,7 +90,7 @@ export class RfqController {
   @Get()
   @ApiOperation({ summary: 'List RFQs for seller products (SELLER)' })
   listForSeller(@Req() req: any) {
-    this.logger.log(`LIST user=${JSON.stringify(req.user)}`);
+    this.logger.log('LIST RFQ request');
 
     if (req.user.role !== 'SELLER') {
       throw new ForbiddenException(

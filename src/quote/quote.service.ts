@@ -19,7 +19,7 @@ export class QuoteService {
 ) {}
 
   async create(user: any, body: CreateQuoteDto) {
-    if (!user || user.role !== 'SELLER') {
+    if (!user || user.role !== 'SELLER' || !user.companyId) {
       throw new ForbiddenException('Sadece SELLER teklif verebilir');
     }
 
@@ -33,8 +33,9 @@ export class QuoteService {
         product: true,
         category: true,
         buyer: {
-          include: {
-            users: true,
+          select: {
+            id: true,
+            users: { select: { id: true, email: true } },
           },
         },
       },
@@ -171,10 +172,10 @@ export class QuoteService {
         rfq: {
           include: {
             product: true,
-            buyer: true,
+            buyer: { select: { id: true } },
           },
         },
-        seller: true,
+        seller: { select: { id: true } },
       },
     });
 
@@ -215,7 +216,7 @@ export class QuoteService {
   }
 
   async listMine(user: any) {
-    if (!user || user.role !== 'SELLER') {
+    if (!user || user.role !== 'SELLER' || !user.companyId) {
       throw new ForbiddenException('Sadece SELLER kendi tekliflerini görebilir');
     }
 
@@ -227,7 +228,7 @@ export class QuoteService {
         rfq: {
           include: {
             product: true,
-            buyer: true,
+            buyer: { select: { id: true } },
           },
         },
       },
@@ -238,7 +239,7 @@ export class QuoteService {
   }
 
   async listForBuyer(user: any) {
-    if (!user || user.role !== 'BUYER') {
+    if (!user || user.role !== 'BUYER' || !user.companyId) {
       throw new ForbiddenException(
         'Sadece BUYER kendisine gelen teklifleri görebilir',
       );
@@ -259,7 +260,6 @@ export class QuoteService {
         seller: {
           select: {
             id: true,
-            name: true,
             verified: true,
             rating: true,
             reviewCount: true,

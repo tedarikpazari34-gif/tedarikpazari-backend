@@ -122,4 +122,22 @@ describe('DashboardService', () => {
       }),
     );
   });
+
+  it('firma kimligi olmadan sorgu yapmaz', async () => {
+    const findMany = jest.fn();
+    const prisma = {
+      product: { count: jest.fn() },
+      order: { findMany },
+    };
+
+    const dashboard = new DashboardService(prisma as any);
+
+    await expect(
+      dashboard.sellerDashboard({ role: 'SELLER' }),
+    ).rejects.toThrow('Firma kimliği zorunludur');
+
+    expect(findMany).not.toHaveBeenCalled();
+    expect(prisma.product.count).not.toHaveBeenCalled();
+  });
+
 });

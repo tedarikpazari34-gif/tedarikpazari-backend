@@ -17,7 +17,7 @@ export class ShippingService {
   }
 
   async createRFQ(user: any, body: any) {
-    if (!user || this.role(user) !== 'BUYER') {
+    if (!user || this.role(user) !== 'BUYER' || !user.companyId) {
       throw new ForbiddenException('Sadece BUYER nakliye talebi oluşturabilir');
     }
 
@@ -27,14 +27,8 @@ export class ShippingService {
 
     const order = await this.prisma.order.findUnique({
       where: { id: body.orderId },
-      include: {
-        buyer: true,
-        seller: true,
-        rfq: {
-          include: {
-            product: true,
-          },
-        },
+      select: {
+        buyerId: true,
       },
     });
 
@@ -45,18 +39,6 @@ export class ShippingService {
     if (order.buyerId !== user.companyId) {
       throw new ForbiddenException('Bu sipariş size ait değil');
     }
-    const existing = await this.prisma.shippingRFQ.findFirst({
-  where: {
-    orderId: body.orderId,
-  },
-});
-
-if (existing) {
-  throw new ForbiddenException(
-    'Bu sipariş için nakliye talebi zaten oluşturulmuş.',
-  );
-}
-
     const fromCity = String(body.fromCity || '').trim();
     const fromDistrict = String(body.fromDistrict || '').trim();
     const fromOpenAddress = String(body.fromOpenAddress || '').trim();
@@ -158,7 +140,29 @@ if (existing) {
       .filter(Boolean)
       .join(' / ');
 
-    return this.prisma.shippingRFQ.create({
+    return this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<{ id: string }[]>`
+        SELECT "id" FROM "Order"
+        WHERE "id" = ${body.orderId}
+        FOR UPDATE
+      `;
+
+      if (!locked.length) {
+        throw new NotFoundException('Sipariş bulunamadı');
+      }
+
+      const existing = await tx.shippingRFQ.findFirst({
+        where: { orderId: body.orderId },
+        select: { id: true },
+      });
+
+      if (existing) {
+        throw new ForbiddenException(
+          'Bu sipariş için nakliye talebi zaten oluşturulmuş.',
+        );
+      }
+
+      return tx.shippingRFQ.create({
       data: {
         orderId: body.orderId,
         buyerId: user.companyId,
@@ -216,99 +220,128 @@ if (existing) {
         note: body.note ?? null,
         status: 'OPEN',
       },
-      include: {
-        order: true,
-        buyer: true,
-        quotes: true,
+      select: {
+        id: true,
+        orderId: true,
+        status: true,
+        createdAt: true,
       },
+      });
     });
   }
 
   async listOpen(user: any) {
-    if (!user || this.role(user) !== 'LOGISTICS') {
-      throw new ForbiddenException(
-        `Sadece LOGISTICS görebilir. Senin rolün: ${user?.role}`,
-      );
+    if (!user || this.role(user) !== 'LOGISTICS' || !user.companyId) {
+      throw new ForbiddenException('Sadece doğrulanmış lojistik firmaları görebilir');
     }
 
     return this.prisma.shippingRFQ.findMany({
-      where: {
-        status: 'OPEN',
-      },
-      include: {
+      where: { status: 'OPEN' },
+      select: {
+        id: true,
+        status: true,
+        fromCity: true,
+        fromDistrict: true,
+        toCity: true,
+        toDistrict: true,
+        palletCount: true,
+        packageCount: true,
+        weight: true,
+        volume: true,
+        vehicleType: true,
+        loadingDate: true,
+        requestedDeliveryDate: true,
+        deliveryExpectation: true,
+        isFragile: true,
+        isDangerous: true,
+        coldChain: true,
+        stackable: true,
+        needForklift: true,
+        needCrane: true,
         order: {
-          include: {
+          select: {
             rfq: {
-              include: {
-                product: true,
+              select: {
+                product: {
+                  select: { title: true },
+                },
               },
             },
-            buyer: true,
-            seller: true,
           },
         },
-        buyer: true,
-        quotes: true,
+        _count: {
+          select: { quotes: true },
+        },
       },
-      orderBy: {
-        createdAt: 'desc',
-      },
+      orderBy: { createdAt: 'desc' },
     });
   }
 
   async sendQuote(user: any, body: any) {
-    if (!user || this.role(user) !== 'LOGISTICS') {
+    if (!user || this.role(user) !== 'LOGISTICS' || !user.companyId) {
       throw new ForbiddenException('Sadece LOGISTICS teklif verebilir');
     }
 
-    if (!body?.rfqId) {
+    if (typeof body?.rfqId !== 'string' || !body.rfqId.trim()) {
       throw new NotFoundException('rfqId zorunlu');
     }
 
-    const shippingRfq = await this.prisma.shippingRFQ.findUnique({
-      where: { id: body.rfqId },
-      include: {
-        quotes: true,
-      },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      // Aynı RFQ için eşzamanlı teklifleri sıraya al.
+      const locked = await tx.$queryRaw<{ id: string }[]>`
+        SELECT "id" FROM "ShippingRFQ"
+        WHERE "id" = ${body.rfqId}
+        FOR UPDATE
+      `;
 
-    if (!shippingRfq) {
-      throw new NotFoundException('Nakliye talebi bulunamadı');
-    }
+      if (!locked.length) {
+        throw new NotFoundException('Nakliye talebi bulunamadı');
+      }
 
-    if (shippingRfq.status !== 'OPEN') {
-      throw new ForbiddenException('Talep açık değil');
-    }
+      const shippingRfq = await tx.shippingRFQ.findUnique({
+        where: { id: body.rfqId },
+        select: { status: true },
+      });
 
-    const existingQuote = await this.prisma.shippingQuote.findFirst({
-      where: {
-        rfqId: body.rfqId,
-        companyId: user.companyId,
-      },
-    });
+      if (!shippingRfq) {
+        throw new NotFoundException('Nakliye talebi bulunamadı');
+      }
 
-    if (existingQuote) {
-      throw new ForbiddenException('Zaten teklif verdiniz');
-    }
+      if (shippingRfq.status !== 'OPEN') {
+        throw new ForbiddenException('Talep açık değil');
+      }
 
-    return this.prisma.shippingQuote.create({
-      data: {
-        rfqId: body.rfqId,
-        companyId: user.companyId,
-        price: Number(body.price),
-        deliveryDays: Number(body.deliveryDays),
-        note: body.note ?? null,
-        status: 'SENT',
-      },
-      include: {
-        rfq: true,
-        company: true,
-      },
+      const existingQuote = await tx.shippingQuote.findFirst({
+        where: {
+          rfqId: body.rfqId,
+          companyId: user.companyId,
+        },
+        select: { id: true },
+      });
+
+      if (existingQuote) {
+        throw new ForbiddenException('Zaten teklif verdiniz');
+      }
+
+      return tx.shippingQuote.create({
+        data: {
+          rfqId: body.rfqId,
+          companyId: user.companyId,
+          price: Number(body.price),
+          deliveryDays: Number(body.deliveryDays),
+          note: body.note ?? null,
+          status: 'SENT',
+        },
+        select: {
+          id: true,
+          status: true,
+        },
+      });
     });
   }
 
   async listQuotesForBuyer(user: any) {
-    if (!user || this.role(user) !== 'BUYER') {
+    if (!user || this.role(user) !== 'BUYER' || !user.companyId) {
       throw new ForbiddenException('Sadece BUYER görebilir');
     }
 
@@ -318,21 +351,29 @@ if (existing) {
           buyerId: user.companyId,
         },
       },
-      include: {
+      select: {
+        id: true,
+        status: true,
+        price: true,
+        deliveryDays: true,
+        note: true,
         rfq: {
-          include: {
+          select: {
             order: {
-              include: {
+              select: {
                 rfq: {
-                  include: {
-                    product: true,
+                  select: {
+                    product: {
+                      select: {
+                        title: true,
+                      },
+                    },
                   },
                 },
               },
             },
           },
         },
-        company: true,
       },
       orderBy: {
         createdAt: 'desc',
@@ -341,21 +382,31 @@ if (existing) {
   }
 
   async acceptQuote(user: any, quoteId: string) {
-    if (!user || this.role(user) !== 'BUYER') {
+    if (!user || this.role(user) !== 'BUYER' || !user.companyId) {
       throw new ForbiddenException('Sadece BUYER seçebilir');
     }
 
     const quote = await this.prisma.shippingQuote.findUnique({
-  where: { id: quoteId },
-  include: {
-    company: true,
-    rfq: {
-      include: {
-        order: true,
+      where: { id: quoteId },
+      select: {
+        id: true,
+        rfqId: true,
+        companyId: true,
+        rfq: {
+          select: {
+            id: true,
+            buyerId: true,
+            orderId: true,
+            status: true,
+            order: {
+              select: {
+                sellerId: true,
+              },
+            },
+          },
+        },
       },
-    },
-  },
-});
+    });
 
     if (!quote) {
       throw new NotFoundException('Teklif bulunamadı');
@@ -370,6 +421,21 @@ if (existing) {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.shippingRFQ.updateMany({
+        where: {
+          id: quote.rfqId,
+          buyerId: user.companyId,
+          status: 'OPEN',
+        },
+        data: { status: 'CLOSED' },
+      });
+
+      if (claimed.count !== 1) {
+        throw new BadRequestException(
+          'Nakliye talebi zaten kapatılmış. Sayfayı yenileyin.',
+        );
+      }
+
       await tx.shippingQuote.update({
         where: { id: quoteId },
         data: { status: 'ACCEPTED' },
@@ -383,11 +449,6 @@ if (existing) {
         data: { status: 'REJECTED' },
       });
 
-      await tx.shippingRFQ.update({
-  where: { id: quote.rfqId },
-  data: { status: 'CLOSED' },
-});
-
 const shippingOrder = await tx.shippingOrder.create({
   data: {
     shippingRfqId: quote.rfq.id,
@@ -397,7 +458,7 @@ const shippingOrder = await tx.shippingOrder.create({
     logisticsId: quote.companyId,
     orderId: quote.rfq.orderId,
     status: 'PENDING_PICKUP',
-    shippingCompany: quote.company?.name || 'Lojistik Firması',
+    shippingCompany: 'Lojistik Firması',
     trackingNo: `LGT-${Date.now()}`,
   },
 });
@@ -425,87 +486,84 @@ if (!chatThread) {
 return {
   message:
     'Nakliye firması seçildi, taşıma siparişi ve üç taraflı lojistik sohbeti oluşturuldu',
-  shippingOrder,
-  chatThread,
+  shippingOrderId: shippingOrder.id,
+  chatThreadId: chatThread.id,
 };
     });
   }
   async listShippingOrders(user: any) {
     const role = this.role(user);
 
-    if (role === 'LOGISTICS') {
-      return this.prisma.shippingOrder.findMany({
-        where: { logisticsId: user.companyId },
-        include: {
-          order: {
-            include: {
-              rfq: { include: { product: true } },
-              buyer: true,
-              seller: true,
-            },
-          },
-          shippingRfq: true,
-          shippingQuote: true,
-          buyer: true,
-          seller: true,
-          logistics: true,
-        },
-        orderBy: { createdAt: 'desc' },
-      });
+    if (
+      !user?.companyId ||
+      !['LOGISTICS', 'BUYER', 'SELLER'].includes(role)
+    ) {
+      throw new ForbiddenException('Yetkisiz');
     }
 
-    if (role === 'BUYER') {
-      return this.prisma.shippingOrder.findMany({
-        where: { buyerId: user.companyId },
-        include: {
-          order: {
-            include: {
-              rfq: { include: { product: true } },
-              buyer: true,
-              seller: true,
+    const where =
+      role === 'LOGISTICS'
+        ? { logisticsId: user.companyId }
+        : role === 'BUYER'
+          ? { buyerId: user.companyId }
+          : { sellerId: user.companyId };
+
+    return this.prisma.shippingOrder.findMany({
+      where,
+      select: {
+        id: true,
+        status: true,
+        createdAt: true,
+        updatedAt: true,
+        pickedUpAt: true,
+        shippedAt: true,
+        deliveredAt: true,
+        trackingNo: true,
+        shippingQuoteId: true,
+        shippingQuote: {
+          select: {
+            id: true,
+            price: true,
+            deliveryDays: true,
+          },
+        },
+        shippingRfq: {
+          select: {
+            fromAddress: role === 'LOGISTICS' || role === 'SELLER',
+            toAddress: role === 'LOGISTICS' || role === 'BUYER',
+            fromCity: true,
+            fromDistrict: true,
+            toCity: true,
+            toDistrict: true,
+          },
+        },
+        order: {
+          select: {
+            rfq: {
+              select: {
+                product: {
+                  select: { title: true },
+                },
+              },
             },
           },
-          shippingRfq: true,
-          shippingQuote: true,
-          buyer: true,
-          seller: true,
-          logistics: true,
         },
-        orderBy: { createdAt: 'desc' },
-      });
-    }
-
-    if (role === 'SELLER') {
-      return this.prisma.shippingOrder.findMany({
-        where: { sellerId: user.companyId },
-        include: {
-          order: {
-            include: {
-              rfq: { include: { product: true } },
-              buyer: true,
-              seller: true,
-            },
-          },
-          shippingRfq: true,
-          shippingQuote: true,
-          buyer: true,
-          seller: true,
-          logistics: true,
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-    }
-
-    throw new ForbiddenException('Yetkisiz');
+      },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
   async pickup(user: any, id: string) {
-    if (this.role(user) !== 'LOGISTICS') {
+    if (!user || this.role(user) !== 'LOGISTICS' || !user.companyId) {
       throw new ForbiddenException('Sadece LOGISTICS yük alabilir');
     }
 
     const order = await this.prisma.shippingOrder.findUnique({
       where: { id },
+      select: {
+        logisticsId: true,
+        status: true,
+      },
     });
 
     if (!order) {
@@ -526,16 +584,28 @@ return {
         status: 'PICKED_UP',
         pickedUpAt: new Date(),
       },
+      select: {
+        id: true,
+        status: true,
+        trackingNo: true,
+        pickedUpAt: true,
+        shippedAt: true,
+        deliveredAt: true,
+      },
     });
   }
 
   async transit(user: any, id: string) {
-    if (this.role(user) !== 'LOGISTICS') {
+    if (!user || this.role(user) !== 'LOGISTICS' || !user.companyId) {
       throw new ForbiddenException('Sadece LOGISTICS yola çıkarabilir');
     }
 
     const order = await this.prisma.shippingOrder.findUnique({
       where: { id },
+      select: {
+        logisticsId: true,
+        status: true,
+      },
     });
 
     if (!order) {
@@ -556,16 +626,28 @@ return {
         status: 'IN_TRANSIT',
         shippedAt: new Date(),
       },
+      select: {
+        id: true,
+        status: true,
+        trackingNo: true,
+        pickedUpAt: true,
+        shippedAt: true,
+        deliveredAt: true,
+      },
     });
   }
 
   async deliver(user: any, id: string) {
-    if (this.role(user) !== 'LOGISTICS') {
+    if (!user || this.role(user) !== 'LOGISTICS' || !user.companyId) {
       throw new ForbiddenException('Sadece LOGISTICS teslim edebilir');
     }
 
     const order = await this.prisma.shippingOrder.findUnique({
       where: { id },
+      select: {
+        logisticsId: true,
+        status: true,
+      },
     });
 
     if (!order) {
@@ -585,6 +667,14 @@ return {
       data: {
         status: 'DELIVERED',
         deliveredAt: new Date(),
+      },
+      select: {
+        id: true,
+        status: true,
+        trackingNo: true,
+        pickedUpAt: true,
+        shippedAt: true,
+        deliveredAt: true,
       },
     });
   }

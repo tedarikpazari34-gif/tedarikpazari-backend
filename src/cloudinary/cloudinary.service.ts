@@ -83,6 +83,90 @@ export class CloudinaryService {
     };
   }
 
+  async deleteChatUpload(
+    publicId: string,
+    resourceType: 'image' | 'raw',
+    deliveryType: 'authenticated' | 'upload',
+  ): Promise<void> {
+    if (
+      typeof publicId !== 'string' ||
+      !/^tedarik-pazari-platform\/chat\/[A-Za-z0-9_-]+(?:\.pdf)?$/.test(publicId) ||
+      !['image', 'raw'].includes(resourceType) ||
+      !['authenticated', 'upload'].includes(deliveryType)
+    ) {
+      throw new InternalServerErrorException(
+        'Gecersiz sohbet dosyasi temizleme referansi',
+      );
+    }
+
+    const result = await cloudinary.uploader.destroy(
+      publicId,
+      {
+        resource_type: resourceType,
+        type: deliveryType,
+        invalidate: true,
+      },
+    );
+
+    if (result?.result !== 'ok' && result?.result !== 'not found') {
+      throw new InternalServerErrorException(
+        'Sohbet dosyasi temizlenemedi; manuel inceleme gerekli',
+      );
+    }
+  }
+
+  createChatDownloadUrl(
+    publicId: string,
+    resourceType: 'image' | 'raw',
+    format: string,
+  ): { url: string; expiresAt: string } {
+    const validId =
+      typeof publicId === 'string' &&
+      /^tedarik-pazari-platform\/chat\/[A-Za-z0-9_-]+(?:\.pdf)?$/.test(publicId);
+
+    const validFormat =
+      (resourceType === 'raw' && format === 'pdf') ||
+      (resourceType === 'image' &&
+        ['jpg', 'jpeg', 'png', 'webp'].includes(format));
+
+    if (
+      !validId ||
+      !validFormat ||
+      (resourceType === 'image' && publicId.endsWith('.pdf'))
+    ) {
+      throw new InternalServerErrorException(
+        'Gecersiz ozel sohbet dosyasi referansi',
+      );
+    }
+
+    const expiresAt = Math.floor(Date.now() / 1000) + 300;
+
+    const url = cloudinary.utils.private_download_url(
+      publicId,
+      format,
+      {
+        resource_type: resourceType,
+        type: 'authenticated',
+        expires_at: expiresAt,
+        attachment: true,
+      },
+    );
+
+    if (
+      typeof url !== 'string' ||
+      !url.startsWith('https://')
+    ) {
+      throw new InternalServerErrorException(
+        'Guvenli sohbet dosyasi baglantisi olusturulamadi',
+      );
+    }
+
+    return {
+      url,
+      expiresAt: new Date(expiresAt * 1000).toISOString(),
+    };
+  }
+
   uploadBuffer(
     buffer: Buffer,
     options: UploadApiOptions = {},

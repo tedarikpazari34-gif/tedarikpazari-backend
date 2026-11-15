@@ -247,6 +247,9 @@ model User {
   emailVerificationToken     String?
   emailVerificationExpiresAt DateTime?
   password                   String
+  sessionVersion             Int       @default(0)
+  passwordResetTokenHash     String?   @unique
+  passwordResetExpiresAt     DateTime?
   role                       Role      @default(BUYER)
   companyId                  String
   createdAt                  DateTime  @default(now())
@@ -256,6 +259,7 @@ model User {
 
   company           Company            @relation(fields: [companyId], references: [id])
   notifications     Notification[]
+  iyzicoWebhookNotifications IyzicoWebhookNotification[]
   favorites         Favorite[]
   pushSubscriptions PushSubscription[]
   productReports    ProductReport[]
@@ -1013,6 +1017,7 @@ model Notification {
   createdAt DateTime         @default(now())
 
   user User @relation(fields: [userId], references: [id])
+  iyzicoWebhookNotification IyzicoWebhookNotification?
 
   @@index([userId])
   @@index([type])
@@ -1087,6 +1092,8 @@ model ChatMessage {
 
   thread ChatThread @relation(fields: [threadId], references: [id])
   sender User       @relation(fields: [senderId], references: [id])
+  translations ChatMessageTranslation[]
+  fileReview ChatFileReview?
 
   @@index([threadId])
   @@index([senderId])
@@ -1353,4 +1360,89 @@ model InvoiceRecord {
   @@index([buyerId, issuedAt])
   @@index([sellerId, issuedAt])
   @@index([status])
+}
+
+
+// Sohbet çevirileri: orijinal mesaj silinirse çevirileri de silinir.
+model ChatMessageTranslation {
+  id                String      @id @default(cuid())
+  messageId         String
+  targetLanguage    String      @db.VarChar(5)
+  sourceHash        String      @db.VarChar(64)
+  translatedContent String?     @db.Text
+  status            String      @default("PENDING")
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  message ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, targetLanguage, sourceHash])
+  @@index([messageId])
+}
+
+// Bütün sunucuların ortak aylık karakter sayacı.
+model ChatTranslationQuota {
+  month          String   @id @db.VarChar(7)
+  usedCharacters Int      @default(0)
+  updatedAt      DateTime @updatedAt
+}
+
+// Sohbet dosyalari icin metin moderasyonundan bagimsiz
+// inceleme ve karantina kaydi.
+enum ChatFileReviewStatus {
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+}
+
+model ChatFileReview {
+  id           String               @id @default(cuid())
+  messageId    String               @unique
+  status       ChatFileReviewStatus @default(PENDING_REVIEW)
+  reviewedAt   DateTime?
+  reviewedById String?
+  reviewNote   String?
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  message ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+}
+
+model IyzicoWebhookEvent {
+  id               String    @id @default(cuid())
+  eventKey         String    @unique
+  paymentAttemptId String?
+  orderId          String?
+  paymentId        String
+  conversationId   String
+  eventType        String
+  paymentStatus    String
+  status           String    @default("RECEIVED")
+  receivedAt       DateTime  @default(now())
+  processedAt      DateTime?
+  lastReceivedAt   DateTime?
+  deliveryCount    Int       @default(1)
+  reviewReason     String?
+  notifications IyzicoWebhookNotification[]
+
+  @@index([paymentAttemptId])
+  @@index([orderId])
+  @@index([conversationId])
+  @@index([status, receivedAt])
+}
+
+model IyzicoWebhookNotification {
+  id             String   @id @default(cuid())
+  webhookEventId String
+  adminUserId    String
+  notificationId String   @unique
+  createdAt      DateTime @default(now())
+  webhookEvent IyzicoWebhookEvent @relation(fields: [webhookEventId], references: [id], onDelete: Restrict)
+  adminUser User @relation(fields: [adminUserId], references: [id], onDelete: Restrict)
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Restrict)
+
+  @@unique([webhookEventId, adminUserId])
+  @@index([adminUserId])
 }

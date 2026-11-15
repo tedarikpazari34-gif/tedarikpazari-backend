@@ -80,7 +80,6 @@ export class OrderService {
       const product = await tx.product.findUnique({
         where: { id: body.productId },
         include: {
-          seller: true,
           variants: {
             select: {
               id: true,
@@ -270,11 +269,6 @@ export class OrderService {
           status: OrderStatus.PENDING_PAYMENT,
           stockReservationStatus: 'RESERVED',
         },
-        include: {
-          product: true,
-          buyer: true,
-          seller: true,
-        },
       });
       return { product, order };
     });
@@ -423,75 +417,210 @@ export class OrderService {
   }
 
   async list(user: any) {
-    const includeRelations = {
+    const role = user?.role;
+
+    if (![Role.ADMIN, Role.BUYER, Role.SELLER].includes(role)) {
+      throw new ForbiddenException('Yetkisiz');
+    }
+
+    if (role !== Role.ADMIN && !user?.companyId) {
+      throw new ForbiddenException('Şirket bilgisi bulunamadı');
+    }
+
+    const productSelect = {
+      id: true,
+      title: true,
+      sku: true,
+      imageUrl: true,
+      unitType: true,
+      moq: true,
+      city: true,
+    } as const;
+
+    const select = {
+      id: true,
+      rfqId: true,
+      quoteId: true,
+      productId: true,
+      quantity: true,
+      variantId: true,
+      variantName: true,
+      variantSku: true,
+      variantBarcode: true,
+      unitPriceSnapshot: true,
+      productTitleSnapshot: true,
+      productSkuSnapshot: true,
+      unitTypeSnapshot: true,
+      buyerId: true,
+      sellerId: true,
+      netAmount: true,
+      vatRate: true,
+      vatAmount: true,
+      totalAmount: true,
+      status: true,
+      stockReservationStatus: true,
+      createdAt: true,
+      shippingTrackingNo: true,
+      shippingCompany: true,
+      shippingMethod: true,
+      shippingDispatchNo: true,
+      shippedAt: true,
+      product: { select: productSelect },
       rfq: {
-        include: {
-          product: true,
+        select: {
+          id: true,
+          title: true,
+          quantity: true,
+          unitType: true,
+          product: { select: productSelect },
         },
       },
-      product: true,
-      quote: true,
-      buyer: { select: { id: true as const } },
-      seller: { select: { id: true as const } },
-    };
-
-    if (user.role === Role.ADMIN) {
-      return this.prisma.order.findMany({
-        orderBy: { createdAt: 'desc' },
-        include: includeRelations,
-      });
-    }
-
-    if (user.role === Role.BUYER) {
-      return this.prisma.order.findMany({
-        where: {
-          buyerId: user.companyId,
+      quote: {
+        select: {
+          id: true,
+          unitPrice: true,
+          sellerNote: true,
+          deliveryDays: true,
+          status: true,
         },
-        orderBy: { createdAt: 'desc' },
-        include: includeRelations,
-      });
-    }
+      },
+      buyer: { select: { id: true } },
+      seller: { select: { id: true } },
+      ...(role !== Role.BUYER
+        ? {
+            commissionAmount: true,
+            escrowAmount: true,
+            payoutAmount: true,
+            escrowReleased: true,
+            releasedAt: true,
+          }
+        : {}),
+    } satisfies Prisma.OrderSelect;
 
-    if (user.role === Role.SELLER) {
-      return this.prisma.order.findMany({
-        where: {
-          sellerId: user.companyId,
-        },
-        orderBy: { createdAt: 'desc' },
-        include: includeRelations,
-      });
-    }
+    const where =
+      role === Role.BUYER
+        ? { buyerId: user.companyId }
+        : role === Role.SELLER
+          ? { sellerId: user.companyId }
+          : undefined;
 
-    throw new ForbiddenException('Yetkisiz');
+    return this.prisma.order.findMany({
+      ...(where ? { where } : {}),
+      orderBy: { createdAt: 'desc' },
+      select,
+    });
   }
 
   async getOne(user: any, orderId: string) {
+    const role = user?.role;
+
+    if (![Role.ADMIN, Role.BUYER, Role.SELLER].includes(role)) {
+      throw new ForbiddenException('Yetkisiz');
+    }
+
+    if (role !== Role.ADMIN && !user?.companyId) {
+      throw new ForbiddenException('Şirket bilgisi bulunamadı');
+    }
+
+    const productSelect = {
+      id: true,
+      title: true,
+      sku: true,
+      imageUrl: true,
+      unitType: true,
+      moq: true,
+      city: true,
+    } as const;
+
+    const select = {
+      id: true,
+      rfqId: true,
+      quoteId: true,
+      productId: true,
+      quantity: true,
+      variantId: true,
+      variantName: true,
+      variantSku: true,
+      variantBarcode: true,
+      unitPriceSnapshot: true,
+      productTitleSnapshot: true,
+      productSkuSnapshot: true,
+      unitTypeSnapshot: true,
+      buyerId: true,
+      sellerId: true,
+      netAmount: true,
+      vatRate: true,
+      vatAmount: true,
+      totalAmount: true,
+      status: true,
+      stockReservationStatus: true,
+      createdAt: true,
+      shippingTrackingNo: true,
+      shippingCompany: true,
+      shippingMethod: true,
+      shippingDispatchNo: true,
+      shippedAt: true,
+      product: { select: productSelect },
+      rfq: {
+        select: {
+          id: true,
+          title: true,
+          quantity: true,
+          unitType: true,
+          product: { select: productSelect },
+        },
+      },
+      quote: {
+        select: {
+          id: true,
+          unitPrice: true,
+          sellerNote: true,
+          deliveryDays: true,
+          status: true,
+        },
+      },
+      buyer: { select: { id: true } },
+      seller: { select: { id: true } },
+      disputes: {
+        select: {
+          id: true,
+          orderId: true,
+          reasonCategory: true,
+          reason: true,
+          description: true,
+          status: true,
+          resolution: true,
+          createdAt: true,
+          resolvedAt: true,
+          ...(role === Role.ADMIN ? { adminNote: true } : {}),
+        },
+      },
+      ...(role !== Role.BUYER
+        ? {
+            commissionAmount: true,
+            escrowAmount: true,
+            payoutAmount: true,
+            escrowReleased: true,
+            releasedAt: true,
+          }
+        : {}),
+    } satisfies Prisma.OrderSelect;
+
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      include: {
-        rfq: {
-          include: {
-            product: true,
-          },
-        },
-        product: true,
-        quote: true,
-        buyer: { select: { id: true as const } },
-        seller: { select: { id: true as const } },
-        disputes: true,
-      },
+      select,
     });
 
     if (!order) {
       throw new NotFoundException('Order not found');
     }
 
-    const isAdmin = user.role === Role.ADMIN;
+    const authorized =
+      role === Role.ADMIN ||
+      (role === Role.BUYER && order.buyerId === user.companyId) ||
+      (role === Role.SELLER && order.sellerId === user.companyId);
 
-    const isOwner =
-      order.buyerId === user.companyId || order.sellerId === user.companyId;
-
-    if (!isAdmin && !isOwner) {
+    if (!authorized) {
       throw new ForbiddenException('Bu order size ait değil');
     }
 

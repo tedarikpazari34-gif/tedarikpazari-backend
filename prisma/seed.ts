@@ -151,7 +151,6 @@ async function ensureAdmin() {
   await prisma.user.upsert({
     where: { email: adminEmail },
     update: {
-      password: hashedPassword,
       companyId: adminCompany.id,
       role: Role.ADMIN,
       emailVerified: true,
@@ -214,7 +213,6 @@ async function ensureDevUsers() {
   await prisma.user.upsert({
     where: { email: "seller@test.com" },
     update: {
-      password: hashedPassword,
       companyId: sellerCompany.id,
       role: Role.SELLER,
     },
@@ -229,7 +227,6 @@ async function ensureDevUsers() {
   await prisma.user.upsert({
     where: { email: "buyer@test.com" },
     update: {
-      password: hashedPassword,
       companyId: buyerCompany.id,
       role: Role.BUYER,
     },

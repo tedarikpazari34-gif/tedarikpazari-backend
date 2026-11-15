@@ -223,9 +223,68 @@ describe('OrderService', () => {
 
     expect(executeRaw).toHaveBeenCalledTimes(1);
     expect(createOrder).toHaveBeenCalledTimes(1);
+
+    const createArguments = createOrder.mock.calls[0][0];
+    expect(createArguments.include?.buyer).toBeUndefined();
+    expect(createArguments.include?.seller).toBeUndefined();
+
     expect(
-      createOrder.mock.calls[0][0].data.totalAmount.toString(),
+      createArguments.data.totalAmount.toString(),
     ).toBe('600');
+  });
+
+  it('alıcı sipariş yanıtında satıcının özel firma bilgileri bulunmaz', async () => {
+    const privateSeller = {
+      id: 'seller-1',
+      name: 'GIZLI GERCEK FIRMA',
+      email: 'private@example.invalid',
+      phone: '05000000000',
+      taxNumber: '9999999999',
+      address: { street: 'GIZLI ADRES' },
+      iyzicoIban: 'TR000000000000000000000000',
+      iyzicoSubMerchantKey: 'GIZLI_IYZICO_KEY',
+    };
+
+    findUnique.mockResolvedValue(
+      productWithVariant({ seller: privateSeller }),
+    );
+
+    createOrder.mockImplementation(async (args) => ({
+      id: 'order-privacy-1',
+      ...args.data,
+      ...(args.include?.seller ? { seller: privateSeller } : {}),
+      ...(args.include?.buyer
+        ? { buyer: { name: 'GIZLI ALICI FIRMA' } }
+        : {}),
+    }));
+
+    findSellerUser.mockResolvedValue(null);
+
+    const result = await service.createDirect(
+      { role: 'BUYER', companyId: 'buyer-1' },
+      { productId: 'product-1', variantId: 'variant-1', quantity: 5 },
+    );
+
+    const response = JSON.stringify(result);
+
+    for (const privateValue of [
+      privateSeller.name,
+      privateSeller.email,
+      privateSeller.phone,
+      privateSeller.taxNumber,
+      'GIZLI ADRES',
+      privateSeller.iyzicoIban,
+      privateSeller.iyzicoSubMerchantKey,
+      'GIZLI ALICI FIRMA',
+    ]) {
+      expect(response).not.toContain(privateValue);
+    }
+
+    expect(result.order.id).toBe('order-privacy-1');
+    expect(result.order.totalAmount.toString()).toBe('600');
+
+    expect(createOrder.mock.calls[0][0].include).toBeUndefined();
+    expect(findUnique.mock.calls[0][0].include.seller).toBeUndefined();
   });
 
   it('servis oluşturulur', () => {
@@ -262,7 +321,6 @@ describe('OrderService', () => {
     expect(findUnique).toHaveBeenCalledWith({
       where: { id: 'product-1' },
       include: {
-        seller: true,
         variants: {
           select: {
             id: true,

@@ -14,6 +14,8 @@ import { AdminFinanceService } from './admin-finance.service';
 
 import { AdminControlCenterController } from './admin-control-center.controller';
 import { AdminControlCenterService } from './admin-control-center.service';
+import { AdminIyzicoWebhookController } from './admin-iyzico-webhook.controller';
+import { AdminIyzicoWebhookService } from './admin-iyzico-webhook.service';
 
 @Module({
   imports: [PrismaModule, ChatModule, ProductModule],
@@ -22,12 +24,14 @@ import { AdminControlCenterService } from './admin-control-center.service';
     AdminMetricsController,
     AdminFinanceController,
     AdminControlCenterController,
+    AdminIyzicoWebhookController,
   ],
   providers: [
     AdminService,
     AdminMetricsService,
     AdminFinanceService,
     AdminControlCenterService,
+    AdminIyzicoWebhookService,
   ],
 })
 export class AdminModule {}

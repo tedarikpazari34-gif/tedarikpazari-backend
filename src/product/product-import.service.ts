@@ -968,8 +968,12 @@ export class ProductImportService {
           },
           data: { processedAt: now },
         }),
-        this.prisma.productImportJob.update({
-          where: { id: job.id },
+        this.prisma.productImportJob.updateMany({
+          where: {
+            id: job.id,
+            sellerId: company.id,
+            status: ProductImportStatus.READY,
+          },
           data: {
             status: ProductImportStatus.IMPORTING,
             startedAt: job.startedAt ?? now,

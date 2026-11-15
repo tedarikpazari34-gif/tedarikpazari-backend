@@ -1,3 +1,4 @@
+import { isAllowedPublicUploadPath } from './chat/public-upload-path';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
@@ -19,6 +20,16 @@ async function bootstrap() {
    * STATIC FILES
    * uploads klasörünü dışarı aç
    */
+  // Public files only; private directories are never served statically.
+  app.use('/uploads', (req, res, next) => {
+    if (!isAllowedPublicUploadPath(req.path)) {
+      res.sendStatus(404);
+      return;
+    }
+
+    next();
+  });
+
   app.useStaticAssets(join(__dirname, '..', 'uploads'), {
     prefix: '/uploads',
   });

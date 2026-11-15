@@ -31,6 +31,7 @@ export class DashboardService {
 
   async buyerDashboard(user: any) {
     this.requireRole(user, Role.BUYER);
+    if (!user.companyId) throw new ForbiddenException('Firma kimliği zorunludur');
 
     const companyId = user.companyId;
 
@@ -75,7 +76,7 @@ export class DashboardService {
             id: true,
             status: true,
             trackingNo: true,
-            shippingCompany: true,
+
             createdAt: true,
           },
           orderBy: { createdAt: 'desc' },
@@ -127,6 +128,9 @@ export class DashboardService {
 
   async sellerDashboard(user: any) {
     this.requireRole(user, Role.SELLER);
+    if (!user.companyId) {
+      throw new ForbiddenException('Firma kimliği zorunludur');
+    }
 
     const companyId = user.companyId;
 
@@ -276,6 +280,7 @@ export class DashboardService {
 
   async logisticsDashboard(user: any) {
     this.requireRole(user, Role.LOGISTICS);
+    if (!user.companyId) throw new ForbiddenException('Firma kimliği zorunludur');
 
     const companyId = user.companyId;
 
@@ -301,7 +306,7 @@ export class DashboardService {
           id: true,
           status: true,
           trackingNo: true,
-          shippingCompany: true,
+
           createdAt: true,
           shippingQuote: {
             select: {

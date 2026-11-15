@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -85,6 +86,15 @@ export class CompanyService {
   async updateMine(user: any, body: UpdateCompanyProfileDto) {
     if (!user?.companyId) {
       throw new BadRequestException('Firma bilgisi bulunamadı');
+    }
+
+    if (
+      user.companyAccess === 'EMPLOYEE' &&
+      !user.permissions?.includes('COMPANY_MANAGE')
+    ) {
+      throw new ForbiddenException(
+        'Firma bilgilerini değiştirme yetkiniz yok',
+      );
     }
 
     const company = await this.prisma.company.findUnique({
