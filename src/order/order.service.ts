@@ -969,38 +969,50 @@ async ship(user: any, orderId: string, body: ShipOrderDto) {
       : null;
 
     if (buyerUser) {
-      await this.notificationService.createNotification({
-        userId: buyerUser.id,
-        type: 'ORDER',
-        title: isFreight
-          ? 'Sipariş Ambar / Nakliyeye Verildi'
-          : 'Sipariş Kargoya Verildi',
-        message: shippingMessage,
-        link: '/buyer/orders',
-      });
+      try {
+        await this.notificationService.createNotification({
+          userId: buyerUser.id,
+          type: 'ORDER',
+          title: isFreight
+            ? 'Sipariş Ambar / Nakliyeye Verildi'
+            : 'Sipariş Kargoya Verildi',
+          message: shippingMessage,
+          link: '/buyer/orders',
+        });
+      } catch {
+        this.logger.error(
+          `Ship notification failed for order ${order.id}`,
+        );
+      }
     }
 
     if (buyerUser?.email) {
-      await this.mailService.sendMail({
-        to: buyerUser.email,
-        subject: isFreight
-          ? 'Tedarik Pazarı - Siparişiniz ambar / nakliyeye verildi'
-          : 'Tedarik Pazarı - Siparişiniz kargoya verildi',
-        text: shippingMessage,
-        html: `
-          <div style="font-family:Arial,sans-serif;line-height:1.6">
-            <h2>${isFreight ? 'Siparişiniz ambar / nakliyeye verildi' : 'Siparişiniz kargoya verildi'}</h2>
-            <p>${safeShippingCompany} ile siparişiniz yola çıktı.</p>
-            <p><strong>${referenceLabel}:</strong> ${safeShippingTrackingNo}</p>
-            ${
-              safeShippingDispatchNo
-                ? `<p><strong>Sevk İrsaliyesi No:</strong> ${safeShippingDispatchNo}</p>`
-                : ''
-            }
-            <p>Siparişinizi alıcı panelinizden takip edebilirsiniz.</p>
-          </div>
-        `,
-      });
+      try {
+        await this.mailService.sendMail({
+          to: buyerUser.email,
+          subject: isFreight
+            ? 'Tedarik Pazarı - Siparişiniz ambar / nakliyeye verildi'
+            : 'Tedarik Pazarı - Siparişiniz kargoya verildi',
+          text: shippingMessage,
+          html: `
+            <div style="font-family:Arial,sans-serif;line-height:1.6">
+              <h2>${isFreight ? 'Siparişiniz ambar / nakliyeye verildi' : 'Siparişiniz kargoya verildi'}</h2>
+              <p>${safeShippingCompany} ile siparişiniz yola çıktı.</p>
+              <p><strong>${referenceLabel}:</strong> ${safeShippingTrackingNo}</p>
+              ${
+                safeShippingDispatchNo
+                  ? `<p><strong>Sevk İrsaliyesi No:</strong> ${safeShippingDispatchNo}</p>`
+                  : ''
+              }
+              <p>Siparişinizi alıcı panelinizden takip edebilirsiniz.</p>
+            </div>
+          `,
+        });
+      } catch {
+        this.logger.error(
+          `Ship mail failed for order ${order.id}`,
+        );
+      }
     }
   } catch {
     this.logger.error(

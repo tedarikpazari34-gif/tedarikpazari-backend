@@ -1,5 +1,6 @@
 import {
   Body,
+  ServiceUnavailableException,
   Controller,
   Get,
   Param,
@@ -18,6 +19,11 @@ export class ShippingController {
   @UseGuards(JwtAuthGuard, CompanyStatusGuard)
   @Post('rfq')
   create(@Req() req: any, @Body() body: any) {
+    if (process.env.SHIPPING_QUOTES_ENABLED !== 'true') {
+      throw new ServiceUnavailableException(
+        'Nakliye teklif hizmeti şu anda kullanıma kapalı',
+      );
+    }
     return this.service.createRFQ(req.user, body);
   }
 
@@ -30,6 +36,11 @@ export class ShippingController {
   @UseGuards(JwtAuthGuard, CompanyStatusGuard)
   @Post('quote')
   quote(@Req() req: any, @Body() body: any) {
+    if (process.env.SHIPPING_QUOTES_ENABLED !== 'true') {
+      throw new ServiceUnavailableException(
+        'Nakliye teklif hizmeti şu anda kullanıma kapalı',
+      );
+    }
     return this.service.sendQuote(req.user, body);
   }
 
@@ -42,6 +53,11 @@ export class ShippingController {
   @UseGuards(JwtAuthGuard, CompanyStatusGuard)
   @Post('quote/:id/accept')
   accept(@Req() req: any, @Param('id') id: string) {
+    if (process.env.SHIPPING_QUOTES_ENABLED !== 'true') {
+      throw new ServiceUnavailableException(
+        'Nakliye teklif hizmeti şu anda kullanıma kapalı',
+      );
+    }
     return this.service.acceptQuote(req.user, id);
   }
   @UseGuards(JwtAuthGuard, CompanyStatusGuard)
