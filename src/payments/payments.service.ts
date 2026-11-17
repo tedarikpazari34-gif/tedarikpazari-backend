@@ -294,6 +294,83 @@ export class PaymentsService {
     });
   }
 
+
+  private async notifyIyzicoSubMerchantEvent(
+    companyId: string,
+    event: 'CREATED' | 'PENDING' | 'RECONCILED',
+  ): Promise<void> {
+    const messages = {
+      CREATED: {
+        seller: 'iyzico ödeme hesabınız oluşturuldu.',
+        admin: 'Satıcının iyzico ödeme hesabı oluşturuldu.',
+      },
+      PENDING: {
+        seller:
+          'iyzico ödeme hesabınız kontrol bekliyor. Lütfen yeniden kayıt başlatmayın.',
+        admin:
+          'Satıcı iyzico hesabı beklemede. Sağlayıcı mutabakatı gerekebilir.',
+      },
+      RECONCILED: {
+        seller:
+          'iyzico ödeme hesabınızın mutabakatı tamamlandı.',
+        admin:
+          'Satıcı iyzico ödeme hesabının mutabakatı tamamlandı.',
+      },
+    } as const;
+
+    try {
+      const [sellers, admins] = await Promise.all([
+        this.prisma.user.findMany({
+          where: { companyId, role: Role.SELLER },
+          select: { id: true },
+        }),
+        this.prisma.user.findMany({
+          where: { role: Role.ADMIN },
+          select: { id: true },
+        }),
+      ]);
+
+      const recipients = [
+        ...sellers.map((user) => ({
+          id: user.id,
+          kind: 'seller' as const,
+        })),
+        ...admins.map((user) => ({
+          id: user.id,
+          kind: 'admin' as const,
+        })),
+      ];
+
+      const sent = new Set<string>();
+
+      for (const recipient of recipients) {
+        if (sent.has(recipient.id)) continue;
+        sent.add(recipient.id);
+
+        try {
+          await this.notificationService.createNotification({
+            userId: recipient.id,
+            type: 'COMPANY',
+            title: 'iyzico ödeme hesabı',
+            message: messages[event][recipient.kind],
+            link:
+              recipient.kind === 'seller'
+                ? '/seller/profile'
+                : '/admin/companies',
+          });
+        } catch {
+          this.logger?.warn(
+            'iyzico hesap bildirimi gönderilemedi; hesap durumu korunuyor',
+          );
+        }
+      }
+    } catch {
+      this.logger?.warn(
+        'iyzico hesap bildirimi alıcıları bulunamadı; hesap durumu korunuyor',
+      );
+    }
+  }
+
   async createIyzicoSubMerchant(
     user: any,
     body: { iban?: string; identityNumber?: string },
@@ -469,9 +546,16 @@ export class PaymentsService {
       );
     }
 
-    const result = await this.iyzico.createSubMerchant(request);
+    let result: any;
+    try {
+      result = await this.iyzico.createSubMerchant(request);
+    } catch (error) {
+      await this.notifyIyzicoSubMerchantEvent(company.id, 'PENDING');
+      throw error;
+    }
 
     if (result?.status !== 'success' || !result?.subMerchantKey) {
+      await this.notifyIyzicoSubMerchantEvent(company.id, 'PENDING');
       throw new BadRequestException(
         'IyziCo ödeme hesabı oluşturulamadı',
       );
@@ -490,10 +574,13 @@ export class PaymentsService {
     });
 
     if (finalized.count !== 1) {
+      await this.notifyIyzicoSubMerchantEvent(company.id, 'PENDING');
       throw new InternalServerErrorException(
         'iyzico ödeme hesabı sağlayıcıda oluşturuldu ancak yerel kayıt kesinleştirilemedi; otomatik tekrar yapılmayacak, mutabakat gerekli',
       );
     }
+
+    await this.notifyIyzicoSubMerchantEvent(company.id, 'CREATED');
 
     return {
       success: true,
@@ -582,6 +669,8 @@ export class PaymentsService {
         'Firma onboarding durumu mutabakat sırasında değişti; yerel kayıt güncellenmedi',
       );
     }
+
+    await this.notifyIyzicoSubMerchantEvent(company.id, 'RECONCILED');
 
     return {
       success: true,

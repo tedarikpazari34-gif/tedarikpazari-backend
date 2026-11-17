@@ -12,6 +12,7 @@ describe('iyzico submerchant onboarding and reconciliation security', () => {
   let company: any;
   let prisma: any;
   let iyzico: any;
+  let notificationService: any;
 
   const seller = { id: 'seller-user', role: Role.SELLER };
   const admin = { id: 'admin-user', role: Role.ADMIN };
@@ -43,6 +44,11 @@ describe('iyzico submerchant onboarding and reconciliation security', () => {
 
     prisma = {
       user: {
+        findMany: jest.fn().mockImplementation(async ({ where }: any) =>
+          where.role === Role.ADMIN
+            ? [{ id: 'admin-user' }]
+            : [{ id: 'seller-user' }],
+        ),
         findUnique: jest.fn().mockImplementation(async () => ({
           id: seller.id,
           emailVerified: true,
@@ -67,10 +73,17 @@ describe('iyzico submerchant onboarding and reconciliation security', () => {
       }),
     };
 
+    notificationService = {
+      createNotification: jest.fn().mockResolvedValue({
+        id: 'mock-notification',
+      }),
+    };
+
     service = Object.create(PaymentsService.prototype);
     Object.assign(service, {
       prisma,
       iyzico,
+      notificationService,
       sensitiveData: { decrypt: jest.fn().mockReturnValue(null) },
     });
   });
@@ -306,4 +319,167 @@ describe('iyzico submerchant onboarding and reconciliation security', () => {
     }));
     expect(prisma.company.updateMany).toHaveBeenCalledTimes(1);
   });
+
+
+  describe('iyzico notification idempotency regression', () => {
+    it('does not notify again after an unsuccessful repeated claim', async () => {
+      prisma.company.updateMany
+        .mockResolvedValueOnce({ count: 1 })
+        .mockResolvedValueOnce({ count: 0 });
+      iyzico.createSubMerchant.mockResolvedValue({ status: 'failure' });
+
+      await expect(
+        service.createIyzicoSubMerchant(seller, { iban }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      await expect(
+        service.createIyzicoSubMerchant(seller, { iban }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(iyzico.createSubMerchant).toHaveBeenCalledTimes(1);
+      expect(notificationService.createNotification).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not notify for already completed reconciliation', async () => {
+      prisma.company.findUnique.mockResolvedValue({
+        ...company,
+        iyzicoSubMerchantKey: 'existing-key',
+      });
+
+      const result = await service.reconcileIyzicoSubMerchant(
+        admin, company.id,
+      );
+
+      expect(result.alreadyCompleted).toBe(true);
+      expect(notificationService.createNotification).not.toHaveBeenCalled();
+    });
+
+    it('does not notify after a reconciliation update collision', async () => {
+      prisma.company.findUnique.mockResolvedValue({
+        ...company,
+        iyzicoSubMerchantPendingAt: new Date(),
+      });
+      prisma.company.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.reconcileIyzicoSubMerchant(admin, company.id),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(notificationService.createNotification).not.toHaveBeenCalled();
+    });
+
+    it('keeps successful reconciliation when notification delivery fails', async () => {
+      prisma.company.findUnique.mockResolvedValue({
+        ...company,
+        iyzicoSubMerchantPendingAt: new Date(),
+      });
+      notificationService.createNotification.mockRejectedValue(
+        new Error('mock notification failure'),
+      );
+
+      const result = await service.reconcileIyzicoSubMerchant(
+        admin, company.id,
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.alreadyCompleted).toBe(false);
+      expect(prisma.company.updateMany).toHaveBeenCalledTimes(1);
+      expect(notificationService.createNotification).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('iyzico notification delivery security', () => {
+    it('notifies seller and admin after successful onboarding', async () => {
+      const result = await service.createIyzicoSubMerchant(
+        seller, { iban },
+      );
+
+      expect(result.success).toBe(true);
+      expect(notificationService.createNotification).toHaveBeenCalledTimes(2);
+
+      const payloads = notificationService.createNotification.mock.calls
+        .map(([data]: any[]) => data);
+
+      expect(payloads.map((data: any) => data.userId).sort())
+        .toEqual(['admin-user', 'seller-user']);
+
+      for (const data of payloads) {
+        expect(data.type).toBe('COMPANY');
+        expect(JSON.stringify(data)).not.toContain(iban);
+        expect(JSON.stringify(data)).not.toContain('mock-merchant-key');
+        expect(JSON.stringify(data)).not.toContain(company.taxNumber);
+      }
+    });
+
+    it('notifies pending state after provider failure', async () => {
+      iyzico.createSubMerchant.mockResolvedValue({
+        status: 'failure',
+      });
+
+      await expect(
+        service.createIyzicoSubMerchant(seller, { iban }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(notificationService.createNotification)
+        .toHaveBeenCalledTimes(2);
+      expect(notificationService.createNotification.mock.calls[0][0].message)
+        .toContain('kontrol bekliyor');
+    });
+
+    it('notifies pending state after provider exception', async () => {
+      iyzico.createSubMerchant.mockRejectedValue(
+        new Error('mock provider timeout'),
+      );
+
+      await expect(
+        service.createIyzicoSubMerchant(seller, { iban }),
+      ).rejects.toThrow('mock provider timeout');
+
+      expect(iyzico.createSubMerchant).toHaveBeenCalledTimes(1);
+      expect(notificationService.createNotification)
+        .toHaveBeenCalledTimes(2);
+    });
+
+    it('notifies seller and admin after verified reconciliation', async () => {
+      prisma.company.findUnique.mockResolvedValue({
+        ...company,
+        iyzicoSubMerchantPendingAt: new Date(),
+      });
+
+      const result = await service.reconcileIyzicoSubMerchant(
+        admin, company.id,
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.alreadyCompleted).toBe(false);
+      expect(notificationService.createNotification)
+        .toHaveBeenCalledTimes(2);
+    });
+
+    it('does not notify when onboarding claim is already taken', async () => {
+      prisma.company.updateMany.mockResolvedValueOnce({ count: 0 });
+
+      await expect(
+        service.createIyzicoSubMerchant(seller, { iban }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+
+      expect(notificationService.createNotification).not.toHaveBeenCalled();
+    });
+
+    it('does not undo successful onboarding on notification failure', async () => {
+      notificationService.createNotification.mockRejectedValue(
+        new Error('mock notification failure'),
+      );
+
+      const result = await service.createIyzicoSubMerchant(
+        seller, { iban },
+      );
+
+      expect(result.success).toBe(true);
+      expect(prisma.company.updateMany).toHaveBeenCalledTimes(2);
+      expect(notificationService.createNotification)
+        .toHaveBeenCalledTimes(2);
+    });
+  });
+
 });
