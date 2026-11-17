@@ -22,6 +22,26 @@ import { NotificationService } from '../notification/notification.service';
 import { SensitiveDataService } from '../common/security/sensitive-data.service';
 import { ResolveIyzicoPaymentReviewDto } from './dto/resolve-iyzico-payment-review.dto';
 
+function isValidTurkishIban(iban: string): boolean {
+  if (!/^TR\d{24}$/.test(iban)) {
+    return false;
+  }
+
+  const rearranged = iban.slice(4) + iban.slice(0, 4);
+  const expanded = rearranged.replace(
+    /[A-Z]/g,
+    (letter) => String(letter.charCodeAt(0) - 55),
+  );
+
+  let remainder = 0;
+
+  for (const digit of expanded) {
+    remainder = (remainder * 10 + Number(digit)) % 97;
+  }
+
+  return remainder === 1;
+}
+
 @Injectable()
 export class PaymentsService {
   private readonly logger = new Logger(PaymentsService.name);
@@ -301,6 +321,12 @@ export class PaymentsService {
 
     const company = authenticatedUser.company;
 
+    if (company.role !== Role.SELLER) {
+      throw new ForbiddenException(
+        'Yalnızca satıcı firmalar iyzico ödeme hesabı oluşturabilir',
+      );
+    }
+
     if (company.status !== CompanyStatus.APPROVED) {
       throw new ForbiddenException(
         'Firmanız onaylanmadan iyzico ödeme hesabı oluşturamazsınız',
@@ -358,7 +384,7 @@ export class PaymentsService {
       .replace(/\s+/g, '')
       .toUpperCase();
 
-    if (!/^TR\d{24}$/.test(iban)) {
+    if (!isValidTurkishIban(iban)) {
       throw new BadRequestException('Geçerli bir Türkiye IBAN giriniz');
     }
 
