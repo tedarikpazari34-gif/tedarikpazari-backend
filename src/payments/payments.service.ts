@@ -921,6 +921,7 @@ export class PaymentsService {
     return {
       message: 'iyzico init ok',
       orderId: order.id,
+      paymentAttemptId: paymentAttempt.id,
       conversationId,
       token: checkoutToken,
       checkoutFormContent: result.checkoutFormContent,
@@ -1035,7 +1036,7 @@ export class PaymentsService {
       },
     });
 
-    return this.processSuccessfulPayment(
+    const processed = await this.processSuccessfulPayment(
       attempt.id,
       attempt.orderId,
       normalizedToken,
@@ -1043,6 +1044,73 @@ export class PaymentsService {
       expectedBasketItemId,
       resultConversationId,
     );
+
+    return {
+      ...processed,
+      paymentAttemptId: attempt.id,
+    };
+  }
+
+  async getBuyerPaymentAttemptStatus(user: any, paymentAttemptId: string) {
+    if (user?.role !== Role.BUYER || !user?.companyId) {
+      throw new ForbiddenException('Yalnızca alıcı kendi ödeme durumunu görebilir');
+    }
+
+    const attempt = await this.prisma.paymentAttempt.findFirst({
+      where: {
+        id: paymentAttemptId,
+        provider: PaymentProvider.IYZICO,
+        order: {
+          buyerId: user.companyId,
+        },
+      },
+      select: {
+        id: true,
+        orderId: true,
+        status: true,
+        callbackVerifiedAt: true,
+        iyzicoPaymentId: true,
+        order: {
+          select: {
+            status: true,
+            iyzicoPaymentId: true,
+          },
+        },
+      },
+    });
+
+    if (!attempt) {
+      throw new NotFoundException('Ödeme denemesi bulunamadı');
+    }
+
+    const paidStatuses: OrderStatus[] = [
+      OrderStatus.PAID,
+      OrderStatus.PREPARING,
+      OrderStatus.SHIPPED,
+      OrderStatus.COMPLETED,
+    ];
+
+    const verifiedSuccess =
+      attempt.status === PaymentStatus.SUCCESS &&
+      attempt.callbackVerifiedAt !== null &&
+      Boolean(attempt.iyzicoPaymentId) &&
+      attempt.iyzicoPaymentId === attempt.order.iyzicoPaymentId &&
+      paidStatuses.includes(attempt.order.status);
+
+    const status = verifiedSuccess
+      ? 'SUCCESS'
+      : attempt.status === PaymentStatus.FAILED
+        ? 'FAILED'
+        : attempt.status === PaymentStatus.REVIEW ||
+            attempt.status === PaymentStatus.SUCCESS
+          ? 'REVIEW'
+          : 'PENDING';
+
+    return {
+      paymentAttemptId: attempt.id,
+      orderId: attempt.orderId,
+      status,
+    };
   }
 
   async listIyzicoPaymentReviews(user: any) {

@@ -1,4 +1,5 @@
 import {
+  Header,
   Body,
   Controller,
   Get,
@@ -94,6 +95,19 @@ export class PaymentsController {
     );
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Get('iyzico/attempts/:paymentAttemptId/status')
+  @Header('Cache-Control', 'no-store')
+  getBuyerPaymentAttemptStatus(
+    @Req() req: any,
+    @Param('paymentAttemptId') paymentAttemptId: string,
+  ) {
+    return this.payments.getBuyerPaymentAttemptStatus(
+      req.user,
+      paymentAttemptId,
+    );
+  }
+
   @Post('iyzico/callback')
   @ApiOperation({ summary: 'iyzico callback' })
   async callback(@Body() body: { token?: string }, @Res() res: Response) {
@@ -111,7 +125,23 @@ export class PaymentsController {
         return res.redirect(303, `${frontendUrl}/buyer/orders?payment=review`);
       }
 
-      return res.redirect(303, `${frontendUrl}/buyer/orders?payment=success`);
+      const verifiedOrderId = String(result?.order?.id ?? '').trim();
+      const verifiedAttemptId = String(result?.paymentAttemptId ?? '').trim();
+
+      if (!verifiedOrderId || !verifiedAttemptId) {
+        return res.redirect(303, `${frontendUrl}/buyer/orders?payment=review`);
+      }
+
+      const params = new URLSearchParams({
+        payment: 'success',
+        orderId: verifiedOrderId,
+        paymentAttemptId: verifiedAttemptId,
+      });
+
+      return res.redirect(
+        303,
+        `${frontendUrl}/buyer/orders?${params.toString()}`,
+      );
     } catch (error) {
       const safeError =
         error instanceof Error ? error.message : 'Bilinmeyen callback hatası';
