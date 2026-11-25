@@ -233,4 +233,80 @@ describe('OrderService sipariş API gizliliği', () => {
     expect(select.iyzicoRawResult).not.toBe(true);
   });
 
+
+  // 2859-CT-RELEASE-103: Rol ve sirket on kosullari.
+  describe('ek siparis rol ve sirket izolasyonu', () => {
+    const unauthorizedActors = [
+      {
+        label: 'LOGISTICS',
+        user: { role: Role.LOGISTICS, companyId: 'logistics-1' },
+      },
+      {
+        label: 'tanimsiz rol',
+        user: { role: 'UNKNOWN_ROLE', companyId: 'buyer-1' },
+      },
+      {
+        label: 'oturumsuz aktor',
+        user: null,
+      },
+    ];
+
+    it.each(unauthorizedActors)(
+      '$label siparis listesini goremez',
+      async ({ user }) => {
+        await expect(createService().list(user))
+          .rejects.toThrow('Yetkisiz');
+
+        expect(findMany).not.toHaveBeenCalled();
+        expect(findUnique).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(unauthorizedActors)(
+      '$label siparis detayini goremez',
+      async ({ user }) => {
+        await expect(
+          createService().getOne(user, 'order-privacy-1'),
+        ).rejects.toThrow('Yetkisiz');
+
+        expect(findMany).not.toHaveBeenCalled();
+        expect(findUnique).not.toHaveBeenCalled();
+      },
+    );
+
+    const missingCompanyActors = [
+      {
+        label: 'sirketi olmayan BUYER',
+        user: { role: Role.BUYER, companyId: undefined },
+      },
+      {
+        label: 'sirketi olmayan SELLER',
+        user: { role: Role.SELLER, companyId: null },
+      },
+    ];
+
+    it.each(missingCompanyActors)(
+      '$label siparis listesini goremez',
+      async ({ user }) => {
+        await expect(createService().list(user))
+          .rejects.toThrow('Şirket bilgisi bulunamadı');
+
+        expect(findMany).not.toHaveBeenCalled();
+        expect(findUnique).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(missingCompanyActors)(
+      '$label siparis detayini goremez',
+      async ({ user }) => {
+        await expect(
+          createService().getOne(user, 'order-privacy-1'),
+        ).rejects.toThrow('Şirket bilgisi bulunamadı');
+
+        expect(findMany).not.toHaveBeenCalled();
+        expect(findUnique).not.toHaveBeenCalled();
+      },
+    );
+  });
+
 });
