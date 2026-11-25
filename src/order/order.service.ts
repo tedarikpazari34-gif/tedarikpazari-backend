@@ -621,7 +621,7 @@ export class OrderService {
       (role === Role.SELLER && order.sellerId === user.companyId);
 
     if (!authorized) {
-      throw new ForbiddenException('Bu order size ait değil');
+      throw new NotFoundException('Order not found');
     }
 
     return order;

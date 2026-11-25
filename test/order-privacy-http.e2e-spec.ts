@@ -90,7 +90,7 @@ describe('Order HTTP access isolation', () => {
 
   it('başka şirketin sipariş detayı reddedilir', async () => {
     await request(app.getHttpServer())
-      .get('/api/orders/order-1').set('Authorization', 'Bearer seller').expect(403);
+      .get('/api/orders/order-1').set('Authorization', 'Bearer seller').expect(404);
   });
 
   it('yönetici ödeme sırlarını göremez', async () => {

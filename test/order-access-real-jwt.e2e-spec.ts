@@ -293,7 +293,7 @@ describe('Siparis gercek JWT HTTP sirket izolasyonu', () => {
     async (actor, id) => {
       await detail(
         id as string, await token(actor as string),
-      ).expect(403);
+      ).expect(404);
     },
   );
 
@@ -339,11 +339,28 @@ describe('Siparis gercek JWT HTTP sirket izolasyonu', () => {
       companyId: 'seller-a',
     });
 
-    await detail('order-a', forged).expect(403);
+    await detail('order-a', forged).expect(404);
   });
 
   it('var olmayan siparis 404 doner', async () => {
     await detail('nonexistent-order', await token('buyerA'))
       .expect(404);
   });
+
+  // 2859-CT-RELEASE-117-A
+  it('baska sirket ve olmayan siparis ayni 404 yanitini verir', async () => {
+    const actorToken = await token('buyerA');
+
+    const foreign = await detail(
+      'order-b', actorToken,
+    ).expect(404);
+
+    const missing = await detail(
+      'nonexistent-order', actorToken,
+    ).expect(404);
+
+    expect(foreign.body).toEqual(missing.body);
+    expect(foreign.body.message).toBe('Order not found');
+  });
+
 });

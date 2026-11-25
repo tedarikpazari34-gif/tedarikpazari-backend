@@ -149,7 +149,7 @@ describe('OrderService sipariş API gizliliği', () => {
         { role: Role.BUYER, companyId: 'buyer-other' },
         'order-privacy-1',
       ),
-    ).rejects.toThrow('Bu order size ait değil');
+    ).rejects.toThrow('Order not found');
   });
 
   it('satıcı başka şirketin sipariş detayına erişemez', async () => {
@@ -158,7 +158,7 @@ describe('OrderService sipariş API gizliliği', () => {
         { role: Role.SELLER, companyId: 'seller-other' },
         'order-privacy-1',
       ),
-    ).rejects.toThrow('Bu order size ait değil');
+    ).rejects.toThrow('Order not found');
   });
 
   it('satıcı listesi kendi şirketiyle sınırlandırılır', async () => {
