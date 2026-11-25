@@ -8,8 +8,6 @@ import { CommonModule } from './common/common.module';
 
 import { AuthModule } from './auth/auth.module';
 import { ProductModule } from './product/product.module';
-import { RfqModule } from './rfq/rfq.module';
-import { QuoteModule } from './quote/quote.module';
 import { OrderModule } from './order/order.module';
 
 import { AdminModule } from './admin/admin.module';
@@ -46,8 +44,6 @@ import { AiModule } from './ai/ai.module';
     CategoryModule,
     SellerModule,
 
-    RfqModule,
-    QuoteModule,
     OrderModule,
 
     PaymentsModule,

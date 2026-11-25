@@ -26,6 +26,8 @@ import { ChatFileAccessService } from './chat-file-access.service';
 // Fail closed until actual content security scanning is complete.
 const CHAT_FILE_CONTENT_SCANNING_READY = false;
 
+const FIRST_RELEASE_RFQ_CHAT_ENABLED = false;
+
 @Controller('chat')
 export class ChatController {
   @Inject(ChatFileAccessService)
@@ -36,6 +38,9 @@ export class ChatController {
   @UseGuards(JwtAuthGuard)
   @Post('rfq/:rfqId/thread')
   createRfqThread(@Req() req: any, @Param('rfqId') rfqId: string) {
+    if (!FIRST_RELEASE_RFQ_CHAT_ENABLED) {
+      throw new ServiceUnavailableException('Urun RFQ sohbeti kapali');
+    }
     return this.chatService.createThreadForRfq(req.user, rfqId);
   }
   @UseGuards(JwtAuthGuard)
